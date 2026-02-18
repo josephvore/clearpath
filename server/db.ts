@@ -1,26 +1,34 @@
-import { and, desc, eq, gte, inArray, like, lte, or, sql, asc, isNull, isNotNull, count } from "drizzle-orm";
+import { eq, and, or, like, desc, asc, count, gte, lte, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
   users,
   organizations,
+  InsertOrganization,
   facilities,
+  InsertFacility,
   programs,
+  InsertProgram,
   tags,
+  InsertTag,
   programTags,
+  InsertProgramTag,
+  facilityTags,
+  InsertFacilityTag,
   sources,
+  InsertSource,
   assertions,
+  InsertAssertion,
+  crawlSnapshots,
+  InsertCrawlSnapshot,
+  fieldChanges,
+  InsertFieldChange,
+  reviewQueue,
+  InsertReviewQueueItem,
   ingestionJobs,
+  InsertIngestionJob,
   userNeedsProfiles,
-  type InsertOrganization,
-  type InsertFacility,
-  type InsertProgram,
-  type InsertTag,
-  type InsertProgramTag,
-  type InsertSource,
-  type InsertAssertion,
-  type InsertIngestionJob,
-  type InsertUserNeedsProfile,
+  InsertUserNeedsProfile,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -45,12 +53,11 @@ export async function getDb() {
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
-  if (!db) return;
+  if (!db) { console.warn("[Database] Cannot upsert user: database not available"); return; }
 
   try {
     const values: InsertUser = { openId: user.openId };
     const updateSet: Record<string, unknown> = {};
-
     const textFields = ["name", "email", "loginMethod"] as const;
     type TextField = (typeof textFields)[number];
     const assignNullable = (field: TextField) => {
@@ -61,22 +68,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet[field] = normalized;
     };
     textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
+    if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
+    if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
+    else if (user.openId === ENV.ownerOpenId) { values.role = "admin"; updateSet.role = "admin"; }
     if (!values.lastSignedIn) values.lastSignedIn = new Date();
-    if (Object.keys(updateSet).length === 0)
-      updateSet.lastSignedIn = new Date();
-
+    if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
     await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
@@ -100,13 +96,6 @@ export async function createOrganization(data: InsertOrganization) {
   if (!db) throw new Error("DB not available");
   const result = await db.insert(organizations).values(data);
   return { id: result[0].insertId };
-}
-
-export async function getOrganizationById(id: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const rows = await db.select().from(organizations).where(eq(organizations.id, id)).limit(1);
-  return rows[0] ?? null;
 }
 
 export async function getOrganizationByDomain(domain: string) {
@@ -133,40 +122,40 @@ export async function createFacility(data: InsertFacility) {
   return { id: result[0].insertId };
 }
 
-export async function getFacilityById(id: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const rows = await db.select().from(facilities).where(eq(facilities.id, id)).limit(1);
-  return rows[0] ?? null;
-}
-
-export async function getFacilitiesByOrg(orgId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(facilities).where(eq(facilities.organizationId, orgId));
-}
-
 export async function updateFacility(id: number, data: Partial<InsertFacility>) {
   const db = await getDb();
   if (!db) return;
   await db.update(facilities).set(data).where(eq(facilities.id, id));
 }
 
-export async function findFacilityByMatch(domain: string | null, name: string, state: string | null) {
+export async function findFacilityByMatch(domain: string, name: string, state: string | null) {
   const db = await getDb();
   if (!db) return null;
 
-  const conditions = [];
-  if (domain) {
-    conditions.push(
-      sql`${facilities.organizationId} IN (SELECT id FROM organizations WHERE websiteDomain = ${domain})`
-    );
-  }
-  conditions.push(like(facilities.name, `%${name}%`));
-  if (state) conditions.push(eq(facilities.state, state));
+  // Try SAMHSA ID first, then name+state, then domain+name
+  const conditions = [
+    and(
+      eq(facilities.name, name),
+      state ? eq(facilities.state, state) : undefined
+    ),
+  ];
 
-  if (conditions.length === 0) return null;
-  const rows = await db.select().from(facilities).where(and(...conditions)).limit(1);
+  for (const cond of conditions) {
+    if (!cond) continue;
+    const rows = await db.select().from(facilities)
+      .innerJoin(organizations, eq(facilities.organizationId, organizations.id))
+      .where(and(cond, eq(organizations.websiteDomain, domain)))
+      .limit(1);
+    if (rows.length > 0) return rows[0].facilities;
+  }
+
+  return null;
+}
+
+export async function getFacilityById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(facilities).where(eq(facilities.id, id)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -181,26 +170,13 @@ export async function createProgram(data: InsertProgram) {
   return { id: result[0].insertId };
 }
 
-export async function getProgramById(id: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const rows = await db.select().from(programs).where(eq(programs.id, id)).limit(1);
-  return rows[0] ?? null;
-}
-
-export async function getProgramsByFacility(facilityId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(programs).where(eq(programs.facilityId, facilityId));
-}
-
 export async function updateProgram(id: number, data: Partial<InsertProgram>) {
   const db = await getDb();
   if (!db) return;
   await db.update(programs).set(data).where(eq(programs.id, id));
 }
 
-export type SearchFilters = {
+export async function searchPrograms(filters: {
   query?: string;
   levelOfCare?: string[];
   telehealth?: boolean;
@@ -208,53 +184,64 @@ export type SearchFilters = {
   conditions?: string[];
   populations?: string[];
   paymentOptions?: string[];
+  insurance?: string[];
+  substances?: string[];
+  accreditations?: string[];
+  genderPolicy?: string;
   state?: string;
   city?: string;
   lat?: number;
   lng?: number;
   radiusMiles?: number;
+  minQuality?: number;
   limit?: number;
   offset?: number;
-};
-
-export async function searchPrograms(filters: SearchFilters) {
+}) {
   const db = await getDb();
   if (!db) return { results: [], total: 0 };
 
+  const limit = filters.limit ?? 20;
+  const offset = filters.offset ?? 0;
   const conditions: any[] = [];
 
-  // Text search on program name
   if (filters.query) {
+    const q = `%${filters.query}%`;
     conditions.push(
       or(
-        like(programs.name, `%${filters.query}%`),
-        like(facilities.name, `%${filters.query}%`),
-        like(organizations.name, `%${filters.query}%`)
+        like(programs.name, q),
+        like(programs.description, q),
+        like(facilities.name, q),
+        like(facilities.city, q),
+        like(organizations.name, q)
       )
     );
   }
 
-  // Level of care filter
-  if (filters.levelOfCare && filters.levelOfCare.length > 0) {
+  if (filters.levelOfCare?.length) {
     conditions.push(inArray(programs.levelOfCare, filters.levelOfCare as any));
   }
 
-  // Telehealth filter
   if (filters.telehealth !== undefined) {
     conditions.push(eq(programs.telehealthAvailable, filters.telehealth));
   }
 
-  // State filter
   if (filters.state) {
     conditions.push(eq(facilities.state, filters.state));
   }
 
-  // City filter
   if (filters.city) {
     conditions.push(like(facilities.city, `%${filters.city}%`));
   }
 
-  // Geo-radius filter (simple bounding box)
+  if (filters.genderPolicy && filters.genderPolicy !== "unknown") {
+    conditions.push(eq(facilities.genderPolicy, filters.genderPolicy as any));
+  }
+
+  if (filters.minQuality) {
+    conditions.push(gte(programs.qualityScore, filters.minQuality));
+  }
+
+  // Geo filter
   if (filters.lat !== undefined && filters.lng !== undefined && filters.radiusMiles) {
     const latDelta = filters.radiusMiles / 69.0;
     const lngDelta = filters.radiusMiles / (69.0 * Math.cos((filters.lat * Math.PI) / 180));
@@ -266,32 +253,25 @@ export async function searchPrograms(filters: SearchFilters) {
     );
   }
 
-  // Tag-based filters (specialties, conditions, populations, payment)
-  const tagFilters: { namespace: string; labels: string[] }[] = [];
-  if (filters.specialties?.length) tagFilters.push({ namespace: "specialty", labels: filters.specialties });
-  if (filters.conditions?.length) tagFilters.push({ namespace: "condition", labels: filters.conditions });
-  if (filters.populations?.length) tagFilters.push({ namespace: "population", labels: filters.populations });
-  if (filters.paymentOptions?.length) tagFilters.push({ namespace: "payer", labels: filters.paymentOptions });
-
-  if (tagFilters.length > 0) {
-    for (const tf of tagFilters) {
-      conditions.push(
-        sql`${programs.id} IN (
-          SELECT pt.programId FROM program_tags pt
-          JOIN tags t ON pt.tagId = t.id
-          WHERE t.namespace = ${tf.namespace}
-          AND t.label IN (${sql.join(tf.labels.map(l => sql`${l}`), sql`, `)})
-        )`
-      );
+  // JSON array filters for facility enriched fields
+  if (filters.insurance?.length) {
+    for (const ins of filters.insurance) {
+      conditions.push(sql`JSON_CONTAINS(${facilities.acceptedInsurance}, ${JSON.stringify(ins)})`);
+    }
+  }
+  if (filters.substances?.length) {
+    for (const sub of filters.substances) {
+      conditions.push(sql`JSON_CONTAINS(${facilities.substancesTreated}, ${JSON.stringify(sub)})`);
+    }
+  }
+  if (filters.accreditations?.length) {
+    for (const acc of filters.accreditations) {
+      conditions.push(sql`JSON_CONTAINS(${facilities.accreditations}, ${JSON.stringify(acc)})`);
     }
   }
 
-  const limit = Math.min(filters.limit ?? 20, 100);
-  const offset = filters.offset ?? 0;
-
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-  // Count total
   const countResult = await db
     .select({ total: count() })
     .from(programs)
@@ -301,7 +281,6 @@ export async function searchPrograms(filters: SearchFilters) {
 
   const total = countResult[0]?.total ?? 0;
 
-  // Fetch results
   const results = await db
     .select({
       program: programs,
@@ -312,7 +291,7 @@ export async function searchPrograms(filters: SearchFilters) {
     .leftJoin(facilities, eq(programs.facilityId, facilities.id))
     .leftJoin(organizations, eq(programs.organizationId, organizations.id))
     .where(whereClause)
-    .orderBy(desc(programs.lastVerifiedAt), desc(programs.updatedAt))
+    .orderBy(desc(programs.qualityScore), desc(programs.lastVerifiedAt), desc(programs.updatedAt))
     .limit(limit)
     .offset(offset);
 
@@ -324,11 +303,7 @@ export async function getProgramDetail(programId: number) {
   if (!db) return null;
 
   const programRows = await db
-    .select({
-      program: programs,
-      facility: facilities,
-      organization: organizations,
-    })
+    .select({ program: programs, facility: facilities, organization: organizations })
     .from(programs)
     .leftJoin(facilities, eq(programs.facilityId, facilities.id))
     .leftJoin(organizations, eq(programs.organizationId, organizations.id))
@@ -336,56 +311,46 @@ export async function getProgramDetail(programId: number) {
     .limit(1);
 
   if (programRows.length === 0) return null;
-
   const row = programRows[0];
 
   // Get tags
   const tagRows = await db
-    .select({
-      tag: tags,
-      confidence: programTags.confidence,
-    })
+    .select({ tag: tags, confidence: programTags.confidence })
     .from(programTags)
     .innerJoin(tags, eq(programTags.tagId, tags.id))
     .where(eq(programTags.programId, programId));
 
+  // Get facility tags
+  const facTagRows = row.facility
+    ? await db
+        .select({ tag: tags, confidence: facilityTags.confidence })
+        .from(facilityTags)
+        .innerJoin(tags, eq(facilityTags.tagId, tags.id))
+        .where(eq(facilityTags.facilityId, row.facility.id))
+    : [];
+
   // Get assertions with sources
   const assertionRows = await db
-    .select({
-      assertion: assertions,
-      source: sources,
-    })
+    .select({ assertion: assertions, source: sources })
     .from(assertions)
     .leftJoin(sources, eq(assertions.sourceId, sources.id))
-    .where(
-      and(
-        eq(assertions.entityType, "program"),
-        eq(assertions.entityId, programId)
-      )
-    )
+    .where(and(eq(assertions.entityType, "program"), eq(assertions.entityId, programId)))
     .orderBy(desc(assertions.confidence));
 
   // Also get facility assertions
   const facilityAssertions = row.facility
     ? await db
-        .select({
-          assertion: assertions,
-          source: sources,
-        })
+        .select({ assertion: assertions, source: sources })
         .from(assertions)
         .leftJoin(sources, eq(assertions.sourceId, sources.id))
-        .where(
-          and(
-            eq(assertions.entityType, "facility"),
-            eq(assertions.entityId, row.facility.id)
-          )
-        )
+        .where(and(eq(assertions.entityType, "facility"), eq(assertions.entityId, row.facility.id)))
         .orderBy(desc(assertions.confidence))
     : [];
 
   return {
     ...row,
     tags: tagRows,
+    facilityTags: facTagRows,
     assertions: assertionRows,
     facilityAssertions,
   };
@@ -395,19 +360,24 @@ export async function getProgramDetail(programId: number) {
 // Tags
 // ============================================================================
 
-export async function findOrCreateTag(namespace: string, label: string) {
+export async function findOrCreateTag(namespace: string, label: string, canonicalLabel?: string) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
+  const normalizedLabel = label.toLowerCase().trim();
   const existing = await db
     .select()
     .from(tags)
-    .where(and(eq(tags.namespace, namespace as any), eq(tags.label, label)))
+    .where(and(eq(tags.namespace, namespace as any), eq(tags.label, normalizedLabel)))
     .limit(1);
 
   if (existing.length > 0) return existing[0];
 
-  const result = await db.insert(tags).values({ namespace: namespace as any, label });
+  const result = await db.insert(tags).values({
+    namespace: namespace as any,
+    label: normalizedLabel,
+    canonicalLabel: canonicalLabel ?? normalizedLabel,
+  });
   const created = await db.select().from(tags).where(eq(tags.id, result[0].insertId)).limit(1);
   return created[0];
 }
@@ -418,6 +388,15 @@ export async function upsertProgramTag(programId: number, tagId: number, confide
   await db
     .insert(programTags)
     .values({ programId, tagId, confidence })
+    .onDuplicateKeyUpdate({ set: { confidence } });
+}
+
+export async function upsertFacilityTag(facilityId: number, tagId: number, confidence: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(facilityTags)
+    .values({ facilityId, tagId, confidence })
     .onDuplicateKeyUpdate({ set: { confidence } });
 }
 
@@ -452,6 +431,29 @@ export async function getSourceByUri(uri: string) {
 }
 
 // ============================================================================
+// Crawl Snapshots
+// ============================================================================
+
+export async function createCrawlSnapshot(data: InsertCrawlSnapshot) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(crawlSnapshots).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function getLatestSnapshot(uri: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(crawlSnapshots)
+    .where(eq(crawlSnapshots.uri, uri))
+    .orderBy(desc(crawlSnapshots.crawledAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+// ============================================================================
 // Assertions
 // ============================================================================
 
@@ -466,19 +468,124 @@ export async function getAssertionsForEntity(entityType: string, entityId: numbe
   const db = await getDb();
   if (!db) return [];
   return db
-    .select({
-      assertion: assertions,
-      source: sources,
-    })
+    .select({ assertion: assertions, source: sources })
     .from(assertions)
     .leftJoin(sources, eq(assertions.sourceId, sources.id))
-    .where(
-      and(
-        eq(assertions.entityType, entityType as any),
-        eq(assertions.entityId, entityId)
-      )
-    )
+    .where(and(eq(assertions.entityType, entityType as any), eq(assertions.entityId, entityId)))
     .orderBy(desc(assertions.confidence));
+}
+
+// ============================================================================
+// Field Changes
+// ============================================================================
+
+export async function createFieldChange(data: InsertFieldChange) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(fieldChanges).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function getFieldChanges(entityType: string, entityId: number, opts?: { limit?: number }) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ change: fieldChanges, source: sources })
+    .from(fieldChanges)
+    .leftJoin(sources, eq(fieldChanges.sourceId, sources.id))
+    .where(and(eq(fieldChanges.entityType, entityType as any), eq(fieldChanges.entityId, entityId)))
+    .orderBy(desc(fieldChanges.createdAt))
+    .limit(opts?.limit ?? 50);
+}
+
+// ============================================================================
+// Review Queue
+// ============================================================================
+
+export async function createReviewItem(data: InsertReviewQueueItem) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const result = await db.insert(reviewQueue).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function getReviewQueue(opts: {
+  status?: string;
+  reviewType?: string;
+  priority?: string;
+  limit?: number;
+  offset?: number;
+} = {}) {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+
+  const conditions: any[] = [];
+  if (opts.status) conditions.push(eq(reviewQueue.status, opts.status as any));
+  if (opts.reviewType) conditions.push(eq(reviewQueue.reviewType, opts.reviewType as any));
+  if (opts.priority) conditions.push(eq(reviewQueue.priority, opts.priority as any));
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const countResult = await db.select({ total: count() }).from(reviewQueue).where(whereClause);
+  const total = countResult[0]?.total ?? 0;
+
+  const items = await db
+    .select()
+    .from(reviewQueue)
+    .where(whereClause)
+    .orderBy(
+      sql`FIELD(${reviewQueue.priority}, 'critical', 'high', 'medium', 'low')`,
+      desc(reviewQueue.createdAt)
+    )
+    .limit(opts.limit ?? 50)
+    .offset(opts.offset ?? 0);
+
+  return { items, total };
+}
+
+export async function updateReviewItem(id: number, data: Partial<InsertReviewQueueItem>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(reviewQueue).set(data).where(eq(reviewQueue.id, id));
+}
+
+export async function getReviewStats() {
+  const db = await getDb();
+  if (!db) return { pending: 0, inReview: 0, total: 0, byType: {} as Record<string, number>, byPriority: {} as Record<string, number> };
+
+  const statusRows = await db
+    .select({ status: reviewQueue.status, count: count() })
+    .from(reviewQueue)
+    .groupBy(reviewQueue.status);
+
+  const typeRows = await db
+    .select({ reviewType: reviewQueue.reviewType, count: count() })
+    .from(reviewQueue)
+    .where(or(eq(reviewQueue.status, "pending"), eq(reviewQueue.status, "in_review")))
+    .groupBy(reviewQueue.reviewType);
+
+  const priorityRows = await db
+    .select({ priority: reviewQueue.priority, count: count() })
+    .from(reviewQueue)
+    .where(or(eq(reviewQueue.status, "pending"), eq(reviewQueue.status, "in_review")))
+    .groupBy(reviewQueue.priority);
+
+  const stats: Record<string, number> = {};
+  for (const row of statusRows) stats[row.status] = row.count;
+
+  const byType: Record<string, number> = {};
+  for (const row of typeRows) byType[row.reviewType] = row.count;
+
+  const byPriority: Record<string, number> = {};
+  for (const row of priorityRows) byPriority[row.priority] = row.count;
+
+  return {
+    pending: stats.pending ?? 0,
+    inReview: stats.in_review ?? 0,
+    total: Object.values(stats).reduce((a, b) => a + b, 0),
+    byType,
+    byPriority,
+  };
 }
 
 // ============================================================================
@@ -498,7 +605,6 @@ export async function getIngestionJobs(opts: { status?: string; limit?: number; 
 
   const conditions: any[] = [];
   if (opts.status) conditions.push(eq(ingestionJobs.status, opts.status as any));
-
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const countResult = await db.select({ total: count() }).from(ingestionJobs).where(whereClause);
@@ -538,17 +644,12 @@ export async function getJobStats() {
   if (!db) return { pending: 0, running: 0, completed: 0, failed: 0 };
 
   const rows = await db
-    .select({
-      status: ingestionJobs.status,
-      count: count(),
-    })
+    .select({ status: ingestionJobs.status, count: count() })
     .from(ingestionJobs)
     .groupBy(ingestionJobs.status);
 
   const stats: Record<string, number> = { pending: 0, running: 0, completed: 0, failed: 0, cancelled: 0 };
-  for (const row of rows) {
-    stats[row.status] = row.count;
-  }
+  for (const row of rows) stats[row.status] = row.count;
   return stats;
 }
 
@@ -563,23 +664,13 @@ export async function getStaleEntities(daysSinceVerified: number = 120) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - daysSinceVerified);
 
-  const stalePrograms = await db
-    .select({
-      program: programs,
-      facility: facilities,
-    })
+  return db
+    .select({ program: programs, facility: facilities })
     .from(programs)
     .leftJoin(facilities, eq(programs.facilityId, facilities.id))
-    .where(
-      or(
-        isNull(programs.lastVerifiedAt),
-        lte(programs.lastVerifiedAt, cutoff)
-      )
-    )
+    .where(or(isNull(programs.lastVerifiedAt), lte(programs.lastVerifiedAt, cutoff)))
     .orderBy(asc(programs.lastVerifiedAt))
     .limit(100);
-
-  return stalePrograms;
 }
 
 // ============================================================================
@@ -599,13 +690,15 @@ export async function createUserNeedsProfile(data: InsertUserNeedsProfile) {
 
 export async function getDashboardStats() {
   const db = await getDb();
-  if (!db) return { organizations: 0, facilities: 0, programs: 0, sources: 0, assertions: 0 };
+  if (!db) return { organizations: 0, facilities: 0, programs: 0, sources: 0, assertions: 0, reviewItems: 0, snapshots: 0 };
 
   const [orgCount] = await db.select({ c: count() }).from(organizations);
   const [facCount] = await db.select({ c: count() }).from(facilities);
   const [progCount] = await db.select({ c: count() }).from(programs);
   const [srcCount] = await db.select({ c: count() }).from(sources);
   const [assertCount] = await db.select({ c: count() }).from(assertions);
+  const [reviewCount] = await db.select({ c: count() }).from(reviewQueue).where(or(eq(reviewQueue.status, "pending"), eq(reviewQueue.status, "in_review")));
+  const [snapCount] = await db.select({ c: count() }).from(crawlSnapshots);
 
   return {
     organizations: orgCount.c,
@@ -613,6 +706,54 @@ export async function getDashboardStats() {
     programs: progCount.c,
     sources: srcCount.c,
     assertions: assertCount.c,
+    reviewItems: reviewCount.c,
+    snapshots: snapCount.c,
+  };
+}
+
+// ============================================================================
+// Quality metrics
+// ============================================================================
+
+export async function getQualityMetrics() {
+  const db = await getDb();
+  if (!db) return { avgQuality: 0, avgCompleteness: 0, avgFreshness: 0, validationPassRate: 0, distribution: [] as any[] };
+
+  const [avgResult] = await db
+    .select({
+      avgQuality: sql<number>`AVG(${facilities.qualityScore})`,
+      avgCompleteness: sql<number>`AVG(${facilities.completenessScore})`,
+      avgFreshness: sql<number>`AVG(${facilities.freshnessScore})`,
+      avgValidation: sql<number>`AVG(${facilities.validationPassRate})`,
+    })
+    .from(facilities)
+    .where(isNotNull(facilities.qualityScore));
+
+  // Quality distribution
+  const distribution = await db
+    .select({
+      bucket: sql<string>`CASE 
+        WHEN ${facilities.qualityScore} >= 0.8 THEN 'high'
+        WHEN ${facilities.qualityScore} >= 0.5 THEN 'medium'
+        WHEN ${facilities.qualityScore} > 0 THEN 'low'
+        ELSE 'unscored'
+      END`,
+      count: count(),
+    })
+    .from(facilities)
+    .groupBy(sql`CASE 
+      WHEN ${facilities.qualityScore} >= 0.8 THEN 'high'
+      WHEN ${facilities.qualityScore} >= 0.5 THEN 'medium'
+      WHEN ${facilities.qualityScore} > 0 THEN 'low'
+      ELSE 'unscored'
+    END`);
+
+  return {
+    avgQuality: avgResult.avgQuality ?? 0,
+    avgCompleteness: avgResult.avgCompleteness ?? 0,
+    avgFreshness: avgResult.avgFreshness ?? 0,
+    validationPassRate: avgResult.avgValidation ?? 0,
+    distribution,
   };
 }
 
@@ -624,10 +765,7 @@ export async function getFacilitiesForMap(opts: { state?: string; lat?: number; 
   const db = await getDb();
   if (!db) return [];
 
-  const conditions: any[] = [
-    isNotNull(facilities.lat),
-    isNotNull(facilities.lng),
-  ];
+  const conditions: any[] = [isNotNull(facilities.lat), isNotNull(facilities.lng)];
 
   if (opts.state) conditions.push(eq(facilities.state, opts.state));
 
@@ -653,6 +791,8 @@ export async function getFacilitiesForMap(opts: { state?: string; lat?: number; 
       facilityType: facilities.facilityType,
       status: facilities.status,
       organizationId: facilities.organizationId,
+      qualityScore: facilities.qualityScore,
+      phone: facilities.phone,
     })
     .from(facilities)
     .where(and(...conditions))

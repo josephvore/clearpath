@@ -38,4 +38,33 @@
 - [x] Rename all "EquipFlow" references to "ClearPath" in frontend
 - [x] Rename all "equipflow" references to "clearpath" in config/package
 - [x] Update VITE_APP_TITLE to ClearPath (user must update via Settings > General in Management UI)
-- [ ] Push code to josephvore/clearpath GitHub repo
+- [x] Push code to josephvore/clearpath GitHub repo
+
+## Data Engineering Overhaul (v2)
+
+- [x] Schema: Add enriched facility fields (phone, website, insurance, specializations, substances, accreditations, etc.)
+- [x] Schema: Add controlled vocabulary/taxonomy tables (canonical terms + synonyms)
+- [x] Schema: Add per-field confidence scores and quality scoring columns
+- [x] Schema: Add crawl_snapshots table for raw content versioning
+- [x] Schema: Add field_changes changelog table
+- [x] Schema: Add human_review_queue table
+- [x] Schema: Expand programs table with duration, schedule, eligibility fields
+- [x] Pipeline: Multi-source discovery (SAMHSA API, Google Places, directories)
+- [x] Pipeline: Enhanced AI extraction with controlled vocabulary mapping
+- [x] Pipeline: Validation rules (phone, URL, address, insurance normalization)
+- [x] Pipeline: Per-field confidence scoring from AI extraction
+- [x] Pipeline: Composite quality scoring (confidence + completeness + freshness + validation)
+- [x] Pipeline: Tiered recrawl scheduling (weekly/monthly/quarterly)
+- [x] Pipeline: Differential updates (only update changed fields)
+- [x] Pipeline: Enhanced entity resolution with deterministic + probabilistic matching
+- [x] Pipeline: Source priority hierarchy for canonicalization
+- [x] API: Enriched search filters (insurance, specializations, substances, accreditations)
+- [x] API: Quality metrics endpoint for admin dashboard
+- [x] API: Human review queue endpoints (list, approve, reject, merge)
+- [x] API: Field-level change history endpoint
+- [x] Frontend: Display insurance, specializations, substances on program cards
+- [x] Frontend: Display quality/confidence indicators on detail page
+- [x] Frontend: Admin quality metrics dashboard with charts
+- [x] Frontend: Admin human review queue interface
+- [x] Frontend: Admin field change history view
+- [x] Tests: Update vitest tests for new endpoints and schema (54 tests passing)

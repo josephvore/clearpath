@@ -218,6 +218,57 @@ vi.mock("./db", () => ({
       facility: { id: 3, name: "Old Facility", state: "TX" },
     },
   ]),
+  getReviewStats: vi.fn().mockResolvedValue({
+    pending: 3,
+    inReview: 1,
+    total: 10,
+    byType: { new_entity: 2, low_confidence: 1 },
+    byPriority: { high: 1, medium: 2 },
+  }),
+  getQualityMetrics: vi.fn().mockResolvedValue({
+    avgQuality: 0.72,
+    avgCompleteness: 0.65,
+    avgFreshness: 0.8,
+    validationPassRate: 0.9,
+    distribution: [
+      { bucket: "high", count: 5 },
+      { bucket: "medium", count: 8 },
+      { bucket: "low", count: 2 },
+    ],
+  }),
+  getReviewQueue: vi.fn().mockResolvedValue({
+    items: [
+      {
+        id: 1,
+        entityType: "facility",
+        entityId: 1,
+        reviewType: "new_entity",
+        status: "pending",
+        priority: "high",
+        reason: "New facility extracted",
+        payload: {},
+        createdAt: new Date(),
+      },
+    ],
+    total: 1,
+  }),
+  updateReviewItem: vi.fn().mockResolvedValue(undefined),
+  getFieldChanges: vi.fn().mockResolvedValue([
+    {
+      change: {
+        id: 1,
+        entityType: "program",
+        entityId: 1,
+        fieldPath: "name",
+        oldValue: "Old Name",
+        newValue: "New Name",
+        reason: "Updated from source",
+        changedBy: "pipeline",
+        createdAt: new Date(),
+      },
+      source: { id: 1, uri: "https://example.com", domain: "example.com" },
+    },
+  ]),
 }));
 
 // Mock the ingestion module
@@ -625,6 +676,136 @@ describe("admin.recrawl", () => {
     const caller = appRouter.createCaller(ctx);
     await expect(
       caller.admin.recrawl({
+        entityType: "invalid" as any,
+        entityId: 1,
+      })
+    ).rejects.toThrow();
+  });
+});
+
+describe("admin.reviewQueue", () => {
+  it("returns review queue items", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.reviewQueue();
+    expect(result).toHaveProperty("items");
+    expect(result).toHaveProperty("total");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].reviewType).toBe("new_entity");
+    expect(result.items[0].status).toBe("pending");
+    expect(result.items[0].priority).toBe("high");
+  });
+
+  it("accepts status filter", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.reviewQueue({ status: "pending" });
+    expect(result).toHaveProperty("items");
+  });
+
+  it("accepts pagination", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.reviewQueue({ limit: 10, offset: 0 });
+    expect(result).toHaveProperty("items");
+  });
+});
+
+describe("admin.resolveReview", () => {
+  it("approves a review item", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.resolveReview({ id: 1, resolution: "approved" });
+    expect(result).toEqual({ success: true });
+  });
+
+  it("rejects a review item", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.resolveReview({ id: 1, resolution: "rejected" });
+    expect(result).toEqual({ success: true });
+  });
+
+  it("merges a review item", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.resolveReview({ id: 1, resolution: "merged" });
+    expect(result).toEqual({ success: true });
+  });
+
+  it("skips a review item", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.resolveReview({ id: 1, resolution: "skipped" });
+    expect(result).toEqual({ success: true });
+  });
+
+  it("rejects invalid resolution", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.admin.resolveReview({ id: 1, resolution: "invalid" as any })
+    ).rejects.toThrow();
+  });
+});
+
+describe("admin.qualityMetrics", () => {
+  it("returns quality metrics", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.qualityMetrics();
+    expect(result).toHaveProperty("avgQuality");
+    expect(result).toHaveProperty("avgCompleteness");
+    expect(result).toHaveProperty("avgFreshness");
+    expect(result).toHaveProperty("validationPassRate");
+    expect(result).toHaveProperty("distribution");
+    expect(result.avgQuality).toBe(0.72);
+    expect(result.distribution).toHaveLength(3);
+  });
+});
+
+describe("admin.computeQuality", () => {
+  it("creates a quality computation job", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.admin.computeQuality();
+    expect(result).toHaveProperty("jobId");
+    expect(result.jobId).toBe(99);
+  });
+});
+
+describe("program.fieldChanges", () => {
+  it("returns field changes for an entity", async () => {
+    const ctx = createPublicContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.program.fieldChanges({
+      entityType: "program",
+      entityId: 1,
+    });
+    expect(result).toBeInstanceOf(Array);
+    expect(result).toHaveLength(1);
+    expect(result[0].change.fieldPath).toBe("name");
+    expect(result[0].change.oldValue).toBe("Old Name");
+    expect(result[0].change.newValue).toBe("New Name");
+    expect(result[0].source?.uri).toBe("https://example.com");
+  });
+
+  it("accepts limit parameter", async () => {
+    const ctx = createPublicContext();
+    const caller = appRouter.createCaller(ctx);
+    const result = await caller.program.fieldChanges({
+      entityType: "facility",
+      entityId: 1,
+      limit: 5,
+    });
+    expect(result).toBeInstanceOf(Array);
+  });
+
+  it("rejects invalid entity type", async () => {
+    const ctx = createPublicContext();
+    const caller = appRouter.createCaller(ctx);
+    await expect(
+      caller.program.fieldChanges({
         entityType: "invalid" as any,
         entityId: 1,
       })

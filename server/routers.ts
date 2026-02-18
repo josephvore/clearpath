@@ -19,7 +19,7 @@ export const appRouter = router({
   }),
 
   // ========================================================================
-  // Search
+  // Search (enriched filters)
   // ========================================================================
   search: router({
     programs: publicProcedure
@@ -32,11 +32,16 @@ export const appRouter = router({
           conditions: z.array(z.string()).optional(),
           populations: z.array(z.string()).optional(),
           paymentOptions: z.array(z.string()).optional(),
+          insurance: z.array(z.string()).optional(),
+          substances: z.array(z.string()).optional(),
+          accreditations: z.array(z.string()).optional(),
+          genderPolicy: z.string().optional(),
           state: z.string().optional(),
           city: z.string().optional(),
           lat: z.number().optional(),
           lng: z.number().optional(),
           radiusMiles: z.number().optional(),
+          minQuality: z.number().min(0).max(1).optional(),
           limit: z.number().min(1).max(100).optional(),
           offset: z.number().min(0).optional(),
         })
@@ -75,6 +80,18 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getAssertionsForEntity(input.entityType, input.entityId);
       }),
+
+    fieldChanges: publicProcedure
+      .input(
+        z.object({
+          entityType: z.enum(["organization", "facility", "program"]),
+          entityId: z.number(),
+          limit: z.number().min(1).max(100).optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        return db.getFieldChanges(input.entityType, input.entityId, { limit: input.limit });
+      }),
   }),
 
   // ========================================================================
@@ -99,7 +116,6 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        // Save the profile
         await db.createUserNeedsProfile({
           location: input.location,
           lat: input.lat ? String(input.lat) : undefined,
@@ -115,12 +131,13 @@ export const appRouter = router({
           budget: input.budget,
         });
 
-        // Search with the user's criteria
         const searchResults = await db.searchPrograms({
           levelOfCare: input.levelOfCareTarget,
           telehealth: input.telehealthOk || undefined,
           conditions: input.primaryConcerns,
           paymentOptions: input.insuranceType,
+          insurance: input.insuranceType,
+          substances: input.substanceList,
           lat: input.lat,
           lng: input.lng,
           radiusMiles: input.distanceMiles || 50,
@@ -146,12 +163,14 @@ export const appRouter = router({
   map: router({
     facilities: publicProcedure
       .input(
-        z.object({
-          state: z.string().optional(),
-          lat: z.number().optional(),
-          lng: z.number().optional(),
-          radiusMiles: z.number().optional(),
-        }).optional()
+        z
+          .object({
+            state: z.string().optional(),
+            lat: z.number().optional(),
+            lng: z.number().optional(),
+            radiusMiles: z.number().optional(),
+          })
+          .optional()
       )
       .query(async ({ input }) => {
         return db.getFacilitiesForMap(input ?? {});
@@ -163,39 +182,33 @@ export const appRouter = router({
   // ========================================================================
   admin: router({
     stats: adminProcedure.query(async () => {
-      const [entityStats, jobStats] = await Promise.all([
+      const [entityStats, jobStats, reviewStats, qualityMetrics] = await Promise.all([
         db.getDashboardStats(),
         db.getJobStats(),
+        db.getReviewStats(),
+        db.getQualityMetrics(),
       ]);
-      return { entities: entityStats, jobs: jobStats };
+      return { entities: entityStats, jobs: jobStats, review: reviewStats, quality: qualityMetrics };
     }),
 
     ingest: adminProcedure
       .input(
         z.object({
           url: z.string().url(),
-          jobType: z
-            .enum(["ingest_seed_url", "crawl_domain"])
-            .default("ingest_seed_url"),
+          jobType: z.enum(["ingest_seed_url", "crawl_domain"]).default("ingest_seed_url"),
         })
       )
       .mutation(async ({ input, ctx }) => {
         const domain = new URL(input.url).hostname;
         const job = await db.createIngestionJob({
           jobType: input.jobType,
-          payload: {
-            url: input.url,
-            domain,
-          },
+          payload: { url: input.url, domain },
           status: "pending",
           createdBy: ctx.user.id,
         });
-
-        // Start processing async (don't await)
         processIngestionJob(job.id).catch((err) => {
           console.error(`[Ingestion] Job ${job.id} failed:`, err);
         });
-
         return { jobId: job.id };
       }),
 
@@ -209,28 +222,38 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const job = await db.createIngestionJob({
           jobType: "recrawl_entity",
-          payload: {
-            entityType: input.entityType,
-            entityId: input.entityId,
-          },
+          payload: { entityType: input.entityType, entityId: input.entityId },
           status: "pending",
           createdBy: ctx.user.id,
         });
-
         processIngestionJob(job.id).catch((err) => {
           console.error(`[Ingestion] Recrawl job ${job.id} failed:`, err);
         });
-
         return { jobId: job.id };
       }),
 
+    computeQuality: adminProcedure.mutation(async ({ ctx }) => {
+      const job = await db.createIngestionJob({
+        jobType: "compute_quality",
+        payload: {},
+        status: "pending",
+        createdBy: ctx.user.id,
+      });
+      processIngestionJob(job.id).catch((err) => {
+        console.error(`[Ingestion] Quality job ${job.id} failed:`, err);
+      });
+      return { jobId: job.id };
+    }),
+
     jobs: adminProcedure
       .input(
-        z.object({
-          status: z.string().optional(),
-          limit: z.number().min(1).max(100).optional(),
-          offset: z.number().min(0).optional(),
-        }).optional()
+        z
+          .object({
+            status: z.string().optional(),
+            limit: z.number().min(1).max(100).optional(),
+            offset: z.number().min(0).optional(),
+          })
+          .optional()
       )
       .query(async ({ input }) => {
         return db.getIngestionJobs(input ?? {});
@@ -248,20 +271,55 @@ export const appRouter = router({
         const job = await db.createIngestionJob({
           jobType: "refresh_stale",
           payload: {
-            lastVerifiedBefore: new Date(
-              Date.now() - input.days * 24 * 60 * 60 * 1000
-            ).toISOString(),
+            lastVerifiedBefore: new Date(Date.now() - input.days * 24 * 60 * 60 * 1000).toISOString(),
           },
           status: "pending",
           createdBy: ctx.user.id,
         });
-
         processIngestionJob(job.id).catch((err) => {
           console.error(`[Ingestion] Refresh job ${job.id} failed:`, err);
         });
-
         return { jobId: job.id };
       }),
+
+    // Review Queue
+    reviewQueue: adminProcedure
+      .input(
+        z
+          .object({
+            status: z.string().optional(),
+            reviewType: z.string().optional(),
+            priority: z.string().optional(),
+            limit: z.number().min(1).max(100).optional(),
+            offset: z.number().min(0).optional(),
+          })
+          .optional()
+      )
+      .query(async ({ input }) => {
+        return db.getReviewQueue(input ?? {});
+      }),
+
+    resolveReview: adminProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          resolution: z.enum(["approved", "rejected", "merged", "skipped"]),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await db.updateReviewItem(input.id, {
+          status: input.resolution === "approved" || input.resolution === "merged" ? "approved" : "rejected",
+          resolvedBy: ctx.user.id,
+          resolvedAt: new Date(),
+          resolution: input.resolution,
+        });
+        return { success: true };
+      }),
+
+    // Quality metrics
+    qualityMetrics: adminProcedure.query(async () => {
+      return db.getQualityMetrics();
+    }),
   }),
 });
 

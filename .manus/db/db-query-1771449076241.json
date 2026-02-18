@@ -1,0 +1,9 @@
+{
+  "query": "SET FOREIGN_KEY_CHECKS = 0; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS facility_tags; DROP TABLE IF EXISTS crawl_snapshots; DROP TABLE IF EXISTS field_changes; DROP TABLE IF EXISTS review_queue; DROP TABLE IF EXISTS __drizzle_migrations; SET FOREIGN_KEY_CHECKS = 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 457Y66dzyZsxJKU.d33bcf3eb10a --database WQomHpxzWhuqJZsHbZoi7q --execute SET FOREIGN_KEY_CHECKS = 0; DROP TABLE IF EXISTS users; DROP TABLE IF EXISTS facility_tags; DROP TABLE IF EXISTS crawl_snapshots; DROP TABLE IF EXISTS field_changes; DROP TABLE IF EXISTS review_queue; DROP TABLE IF EXISTS __drizzle_migrations; SET FOREIGN_KEY_CHECKS = 1;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2790
+}

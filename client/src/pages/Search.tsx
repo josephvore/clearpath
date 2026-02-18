@@ -11,7 +11,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
@@ -20,6 +19,12 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   Search as SearchIcon,
   MapPin,
@@ -33,15 +38,22 @@ import {
   List,
   X,
   AlertCircle,
+  Shield,
+  Star,
 } from "lucide-react";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Link, useSearch } from "wouter";
 import { MapView } from "@/components/Map";
 import {
   LEVEL_OF_CARE_OPTIONS,
   PAYMENT_OPTIONS,
   US_STATES,
+  COMMON_INSURANCE,
+  COMMON_SUBSTANCES,
+  COMMON_SPECIALIZATIONS,
+  GENDER_POLICY_OPTIONS,
   formatLevelOfCare,
+  getConfidenceLabel,
 } from "@shared/types";
 
 type ViewMode = "list" | "map";
@@ -52,12 +64,13 @@ export default function Search() {
   const initialLoc = searchParams.get("levelOfCare");
 
   const [query, setQuery] = useState(initialQuery);
-  const [levelOfCare, setLevelOfCare] = useState<string[]>(
-    initialLoc ? [initialLoc] : []
-  );
+  const [levelOfCare, setLevelOfCare] = useState<string[]>(initialLoc ? [initialLoc] : []);
   const [state, setState] = useState("");
   const [telehealth, setTelehealth] = useState(false);
   const [paymentOptions, setPaymentOptions] = useState<string[]>([]);
+  const [insurance, setInsurance] = useState<string[]>([]);
+  const [substances, setSubstances] = useState<string[]>([]);
+  const [genderPolicy, setGenderPolicy] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [page, setPage] = useState(0);
 
@@ -68,36 +81,25 @@ export default function Search() {
       state: state || undefined,
       telehealth: telehealth || undefined,
       paymentOptions: paymentOptions.length > 0 ? paymentOptions : undefined,
+      insurance: insurance.length > 0 ? insurance : undefined,
+      substances: substances.length > 0 ? substances : undefined,
+      genderPolicy: genderPolicy || undefined,
       limit: 20,
       offset: page * 20,
     }),
-    [query, levelOfCare, state, telehealth, paymentOptions, page]
+    [query, levelOfCare, state, telehealth, paymentOptions, insurance, substances, genderPolicy, page]
   );
 
   const { data, isLoading, error } = trpc.search.programs.useQuery(filters);
-  const { data: mapFacilities } = trpc.map.facilities.useQuery(
-    state ? { state } : undefined
-  );
+  const { data: mapFacilities } = trpc.map.facilities.useQuery(state ? { state } : undefined);
 
-  const handleSearch = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      setPage(0);
-    },
-    []
-  );
-
-  const toggleLevelOfCare = (value: string) => {
-    setLevelOfCare((prev) =>
-      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
-    );
+  const handleSearch = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
     setPage(0);
-  };
+  }, []);
 
-  const togglePayment = (value: string) => {
-    setPaymentOptions((prev) =>
-      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
-    );
+  const toggleArray = (setter: React.Dispatch<React.SetStateAction<string[]>>, value: string) => {
+    setter((prev) => (prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]));
     setPage(0);
   };
 
@@ -107,13 +109,26 @@ export default function Search() {
     setState("");
     setTelehealth(false);
     setPaymentOptions([]);
+    setInsurance([]);
+    setSubstances([]);
+    setGenderPolicy("");
     setPage(0);
   };
 
   const hasFilters =
-    query || levelOfCare.length > 0 || state || telehealth || paymentOptions.length > 0;
+    query || levelOfCare.length > 0 || state || telehealth || paymentOptions.length > 0 || insurance.length > 0 || substances.length > 0 || genderPolicy;
 
   const totalPages = data ? Math.ceil(data.total / 20) : 0;
+
+  const filterProps = {
+    levelOfCare, telehealth, paymentOptions, insurance, substances, genderPolicy,
+    toggleLevelOfCare: (v: string) => toggleArray(setLevelOfCare, v),
+    setTelehealth,
+    togglePayment: (v: string) => toggleArray(setPaymentOptions, v),
+    toggleInsurance: (v: string) => toggleArray(setInsurance, v),
+    toggleSubstance: (v: string) => toggleArray(setSubstances, v),
+    setGenderPolicy,
+  };
 
   return (
     <div className="min-h-[calc(100vh-200px)]">
@@ -132,45 +147,35 @@ export default function Search() {
               />
             </div>
             <Select value={state} onValueChange={(v) => { setState(v === "all" ? "" : v); setPage(0); }}>
-              <SelectTrigger className="w-[140px] h-10">
+              <SelectTrigger className="w-[160px] h-10">
                 <MapPin className="w-3.5 h-3.5 mr-1 shrink-0" />
                 <SelectValue placeholder="State" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All States</SelectItem>
                 {US_STATES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
-            {/* Mobile filter button */}
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="outline" size="icon" className="h-10 w-10 lg:hidden">
                   <Filter className="w-4 h-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-80">
+              <SheetContent side="left" className="w-80 overflow-y-auto">
                 <SheetHeader>
                   <SheetTitle>Filters</SheetTitle>
                 </SheetHeader>
-                <FilterPanel
-                  levelOfCare={levelOfCare}
-                  telehealth={telehealth}
-                  paymentOptions={paymentOptions}
-                  toggleLevelOfCare={toggleLevelOfCare}
-                  setTelehealth={setTelehealth}
-                  togglePayment={togglePayment}
-                />
+                <FilterPanel {...filterProps} />
               </SheetContent>
             </Sheet>
 
-            <Button type="submit" className="h-10">
-              Search
-            </Button>
+            <Button type="submit" className="h-10">Search</Button>
           </form>
 
           {/* Active filters */}
@@ -178,41 +183,36 @@ export default function Search() {
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <span className="text-xs text-muted-foreground">Filters:</span>
               {levelOfCare.map((loc) => (
-                <Badge
-                  key={loc}
-                  variant="secondary"
-                  className="gap-1 cursor-pointer"
-                  onClick={() => toggleLevelOfCare(loc)}
-                >
-                  {formatLevelOfCare(loc)}
-                  <X className="w-3 h-3" />
+                <Badge key={loc} variant="secondary" className="gap-1 cursor-pointer" onClick={() => toggleArray(setLevelOfCare, loc)}>
+                  {formatLevelOfCare(loc)} <X className="w-3 h-3" />
                 </Badge>
               ))}
               {telehealth && (
-                <Badge
-                  variant="secondary"
-                  className="gap-1 cursor-pointer"
-                  onClick={() => setTelehealth(false)}
-                >
+                <Badge variant="secondary" className="gap-1 cursor-pointer" onClick={() => setTelehealth(false)}>
                   Telehealth <X className="w-3 h-3" />
                 </Badge>
               )}
+              {insurance.map((ins) => (
+                <Badge key={ins} variant="secondary" className="gap-1 cursor-pointer" onClick={() => toggleArray(setInsurance, ins)}>
+                  {ins} <X className="w-3 h-3" />
+                </Badge>
+              ))}
+              {substances.map((sub) => (
+                <Badge key={sub} variant="secondary" className="gap-1 cursor-pointer" onClick={() => toggleArray(setSubstances, sub)}>
+                  {sub} <X className="w-3 h-3" />
+                </Badge>
+              ))}
+              {genderPolicy && (
+                <Badge variant="secondary" className="gap-1 cursor-pointer" onClick={() => setGenderPolicy("")}>
+                  {GENDER_POLICY_OPTIONS.find(g => g.value === genderPolicy)?.label ?? genderPolicy} <X className="w-3 h-3" />
+                </Badge>
+              )}
               {paymentOptions.map((po) => (
-                <Badge
-                  key={po}
-                  variant="secondary"
-                  className="gap-1 cursor-pointer"
-                  onClick={() => togglePayment(po)}
-                >
+                <Badge key={po} variant="secondary" className="gap-1 cursor-pointer" onClick={() => toggleArray(setPaymentOptions, po)}>
                   {po.replace(/_/g, " ")} <X className="w-3 h-3" />
                 </Badge>
               ))}
-              <button
-                onClick={clearFilters}
-                className="text-xs text-primary hover:underline"
-              >
-                Clear all
-              </button>
+              <button onClick={clearFilters} className="text-xs text-primary hover:underline">Clear all</button>
             </div>
           )}
         </div>
@@ -223,59 +223,35 @@ export default function Search() {
         <div className="flex gap-6">
           {/* Desktop sidebar filters */}
           <aside className="hidden lg:block w-64 shrink-0">
-            <div className="sticky top-24">
-              <FilterPanel
-                levelOfCare={levelOfCare}
-                telehealth={telehealth}
-                paymentOptions={paymentOptions}
-                toggleLevelOfCare={toggleLevelOfCare}
-                setTelehealth={setTelehealth}
-                togglePayment={togglePayment}
-              />
+            <div className="sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto pr-2">
+              <FilterPanel {...filterProps} />
             </div>
           </aside>
 
           {/* Results */}
           <div className="flex-1 min-w-0">
-            {/* Results header */}
             <div className="flex items-center justify-between mb-4">
               <div className="text-sm text-muted-foreground">
-                {isLoading ? (
-                  "Searching..."
-                ) : data ? (
-                  <>
-                    <span className="font-medium text-foreground">{data.total}</span>{" "}
-                    program{data.total !== 1 ? "s" : ""} found
-                  </>
+                {isLoading ? "Searching..." : data ? (
+                  <><span className="font-medium text-foreground">{data.total}</span> program{data.total !== 1 ? "s" : ""} found</>
                 ) : null}
               </div>
               <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
                 <button
                   onClick={() => setViewMode("list")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
-                    viewMode === "list"
-                      ? "bg-white shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${viewMode === "list" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <List className="w-4 h-4" />
-                  List
+                  <List className="w-4 h-4" /> List
                 </button>
                 <button
                   onClick={() => setViewMode("map")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
-                    viewMode === "map"
-                      ? "bg-white shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${viewMode === "map" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <MapIcon className="w-4 h-4" />
-                  Map
+                  <MapIcon className="w-4 h-4" /> Map
                 </button>
               </div>
             </div>
 
-            {/* Loading */}
             {isLoading && (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-6 h-6 animate-spin text-primary mr-2" />
@@ -283,7 +259,6 @@ export default function Search() {
               </div>
             )}
 
-            {/* Error */}
             {error && (
               <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
                 <AlertCircle className="w-5 h-5 shrink-0" />
@@ -291,7 +266,6 @@ export default function Search() {
               </div>
             )}
 
-            {/* Results */}
             {!isLoading && data && (
               <>
                 {viewMode === "list" ? (
@@ -300,12 +274,7 @@ export default function Search() {
                       <EmptyState />
                     ) : (
                       data.results.map((result) => (
-                        <ProgramCard
-                          key={result.program.id}
-                          program={result.program}
-                          facility={result.facility}
-                          organization={result.organization}
-                        />
+                        <ProgramCard key={result.program.id} program={result.program} facility={result.facility} organization={result.organization} />
                       ))
                     )}
                   </div>
@@ -318,70 +287,32 @@ export default function Search() {
                           map.setZoom(4);
                           return;
                         }
-
                         const bounds = new google.maps.LatLngBounds();
                         mapFacilities.forEach((f) => {
                           if (f.lat && f.lng) {
-                            const pos = {
-                              lat: parseFloat(String(f.lat)),
-                              lng: parseFloat(String(f.lng)),
-                            };
+                            const pos = { lat: parseFloat(String(f.lat)), lng: parseFloat(String(f.lng)) };
                             bounds.extend(pos);
-
                             const marker = new google.maps.Marker({
-                              position: pos,
-                              map,
-                              title: f.name,
-                              icon: {
-                                path: google.maps.SymbolPath.CIRCLE,
-                                scale: 8,
-                                fillColor: "#0d9488",
-                                fillOpacity: 0.9,
-                                strokeColor: "#ffffff",
-                                strokeWeight: 2,
-                              },
+                              position: pos, map, title: f.name,
+                              icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#0d9488", fillOpacity: 0.9, strokeColor: "#ffffff", strokeWeight: 2 },
                             });
-
                             const infoWindow = new google.maps.InfoWindow({
-                              content: `<div style="padding:4px;max-width:200px;"><strong>${f.name}</strong><br/><span style="color:#666;font-size:12px;">${f.city ?? ""}, ${f.state ?? ""}</span></div>`,
+                              content: `<div style="padding:4px;max-width:220px;"><strong>${f.name}</strong><br/><span style="color:#666;font-size:12px;">${f.city ?? ""}, ${f.state ?? ""}</span>${f.phone ? `<br/><a href="tel:${f.phone}" style="color:#0d9488;font-size:12px;">${f.phone}</a>` : ""}</div>`,
                             });
-
-                            marker.addListener("click", () => {
-                              infoWindow.open(map, marker);
-                            });
+                            marker.addListener("click", () => infoWindow.open(map, marker));
                           }
                         });
-
-                        if (mapFacilities.length > 0) {
-                          map.fitBounds(bounds);
-                        }
+                        if (mapFacilities.length > 0) map.fitBounds(bounds);
                       }}
                     />
                   </div>
                 )}
 
-                {/* Pagination */}
                 {totalPages > 1 && viewMode === "list" && (
                   <div className="flex items-center justify-center gap-2 mt-8">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page === 0}
-                      onClick={() => setPage((p) => p - 1)}
-                    >
-                      Previous
-                    </Button>
-                    <span className="text-sm text-muted-foreground px-3">
-                      Page {page + 1} of {totalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page >= totalPages - 1}
-                      onClick={() => setPage((p) => p + 1)}
-                    >
-                      Next
-                    </Button>
+                    <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</Button>
+                    <span className="text-sm text-muted-foreground px-3">Page {page + 1} of {totalPages}</span>
+                    <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>Next</Button>
                   </div>
                 )}
               </>
@@ -394,113 +325,143 @@ export default function Search() {
 }
 
 // ============================================================================
-// Filter Panel
+// Filter Panel (enriched)
 // ============================================================================
 
 function FilterPanel({
-  levelOfCare,
-  telehealth,
-  paymentOptions,
-  toggleLevelOfCare,
-  setTelehealth,
-  togglePayment,
+  levelOfCare, telehealth, paymentOptions, insurance, substances, genderPolicy,
+  toggleLevelOfCare, setTelehealth, togglePayment, toggleInsurance, toggleSubstance, setGenderPolicy,
 }: {
   levelOfCare: string[];
   telehealth: boolean;
   paymentOptions: string[];
+  insurance: string[];
+  substances: string[];
+  genderPolicy: string;
   toggleLevelOfCare: (v: string) => void;
   setTelehealth: (v: boolean) => void;
   togglePayment: (v: string) => void;
+  toggleInsurance: (v: string) => void;
+  toggleSubstance: (v: string) => void;
+  setGenderPolicy: (v: string) => void;
 }) {
   return (
-    <div className="space-y-6">
-      {/* Level of Care */}
-      <div>
-        <h3 className="font-semibold text-sm mb-3">Level of Care</h3>
-        <div className="space-y-2">
-          {LEVEL_OF_CARE_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className="flex items-center gap-2 cursor-pointer"
-            >
-              <Checkbox
-                checked={levelOfCare.includes(option.value)}
-                onCheckedChange={() => toggleLevelOfCare(option.value)}
-              />
-              <span className="text-sm">{option.label}</span>
+    <Accordion type="multiple" defaultValue={["loc", "telehealth", "insurance"]} className="w-full">
+      <AccordionItem value="loc">
+        <AccordionTrigger className="text-sm font-semibold py-3">Level of Care</AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-2">
+            {LEVEL_OF_CARE_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={levelOfCare.includes(option.value)} onCheckedChange={() => toggleLevelOfCare(option.value)} />
+                <span className="text-sm">{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="telehealth">
+        <AccordionTrigger className="text-sm font-semibold py-3">Telehealth</AccordionTrigger>
+        <AccordionContent>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox checked={telehealth} onCheckedChange={(checked) => setTelehealth(checked === true)} />
+            <Video className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm">Telehealth Available</span>
+          </label>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="insurance">
+        <AccordionTrigger className="text-sm font-semibold py-3">Insurance Accepted</AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {COMMON_INSURANCE.map((ins) => (
+              <label key={ins} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={insurance.includes(ins)} onCheckedChange={() => toggleInsurance(ins)} />
+                <span className="text-sm">{ins}</span>
+              </label>
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="substances">
+        <AccordionTrigger className="text-sm font-semibold py-3">Substances Treated</AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {COMMON_SUBSTANCES.map((sub) => (
+              <label key={sub} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={substances.includes(sub)} onCheckedChange={() => toggleSubstance(sub)} />
+                <span className="text-sm">{sub}</span>
+              </label>
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+
+      <AccordionItem value="gender">
+        <AccordionTrigger className="text-sm font-semibold py-3">Gender Policy</AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox checked={genderPolicy === ""} onCheckedChange={() => setGenderPolicy("")} />
+              <span className="text-sm">Any</span>
             </label>
-          ))}
-        </div>
-      </div>
+            {GENDER_POLICY_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={genderPolicy === option.value} onCheckedChange={() => setGenderPolicy(genderPolicy === option.value ? "" : option.value)} />
+                <span className="text-sm">{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
 
-      <Separator />
-
-      {/* Telehealth */}
-      <div>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            checked={telehealth}
-            onCheckedChange={(checked) => setTelehealth(checked === true)}
-          />
-          <Video className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Telehealth Available</span>
-        </label>
-      </div>
-
-      <Separator />
-
-      {/* Payment Options */}
-      <div>
-        <h3 className="font-semibold text-sm mb-3">Payment / Insurance</h3>
-        <div className="space-y-2">
-          {PAYMENT_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className="flex items-center gap-2 cursor-pointer"
-            >
-              <Checkbox
-                checked={paymentOptions.includes(option.value)}
-                onCheckedChange={() => togglePayment(option.value)}
-              />
-              <span className="text-sm">{option.label}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-    </div>
+      <AccordionItem value="payment">
+        <AccordionTrigger className="text-sm font-semibold py-3">Payment Options</AccordionTrigger>
+        <AccordionContent>
+          <div className="space-y-2">
+            {PAYMENT_OPTIONS.map((option) => (
+              <label key={option.value} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={paymentOptions.includes(option.value)} onCheckedChange={() => togglePayment(option.value)} />
+                <span className="text-sm">{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }
 
 // ============================================================================
-// Program Card
+// Program Card (enriched with quality + insurance badges)
 // ============================================================================
 
-function ProgramCard({
-  program,
-  facility,
-  organization,
-}: {
-  program: any;
-  facility: any;
-  organization: any;
-}) {
+function ProgramCard({ program, facility, organization }: { program: any; facility: any; organization: any }) {
+  const qualityScore = facility?.qualityScore ?? program?.qualityScore;
+  const insuranceList: string[] = facility?.acceptedInsurance ?? [];
+  const substancesList: string[] = facility?.substancesTreated ?? [];
+
   return (
     <Link href={`/program/${program.id}`} className="block no-underline group">
       <Card className="hover:shadow-md hover:border-primary/30 transition-all">
         <CardContent className="p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <Badge
-                  variant="outline"
-                  className="text-xs shrink-0 border-primary/30 text-primary"
-                >
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge variant="outline" className="text-xs shrink-0 border-primary/30 text-primary">
                   {formatLevelOfCare(program.levelOfCare)}
                 </Badge>
                 {program.telehealthAvailable && (
                   <Badge variant="secondary" className="text-xs gap-1">
-                    <Video className="w-3 h-3" />
-                    Telehealth
+                    <Video className="w-3 h-3" /> Telehealth
+                  </Badge>
+                )}
+                {qualityScore != null && qualityScore > 0 && (
+                  <Badge variant={qualityScore >= 0.7 ? "default" : "secondary"} className="text-xs gap-1">
+                    <Star className="w-3 h-3" /> {getConfidenceLabel(qualityScore)} Quality
                   </Badge>
                 )}
               </div>
@@ -509,25 +470,35 @@ function ProgramCard({
               </h3>
               {organization && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
-                  <Building2 className="w-3.5 h-3.5 shrink-0" />
-                  {organization.name}
+                  <Building2 className="w-3.5 h-3.5 shrink-0" /> {organization.name}
                 </p>
               )}
               {facility && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
-                  <MapPin className="w-3.5 h-3.5 shrink-0" />
-                  {[facility.city, facility.state].filter(Boolean).join(", ")}
+                  <MapPin className="w-3.5 h-3.5 shrink-0" /> {[facility.city, facility.state].filter(Boolean).join(", ")}
                 </p>
               )}
               {program.description && (
-                <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
-                  {program.description}
-                </p>
+                <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{program.description}</p>
               )}
-              {facility?.phoneIntake && (
+
+              {/* Enriched data badges */}
+              {(insuranceList.length > 0 || substancesList.length > 0) && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {insuranceList.slice(0, 3).map((ins: string) => (
+                    <Badge key={ins} variant="outline" className="text-[10px] px-1.5 py-0 border-green-300 text-green-700">
+                      <Shield className="w-2.5 h-2.5 mr-0.5" /> {ins}
+                    </Badge>
+                  ))}
+                  {insuranceList.length > 3 && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">+{insuranceList.length - 3} more</Badge>
+                  )}
+                </div>
+              )}
+
+              {facility?.phone && (
                 <p className="text-sm text-primary flex items-center gap-1 mt-2">
-                  <Phone className="w-3.5 h-3.5" />
-                  {facility.phoneIntake}
+                  <Phone className="w-3.5 h-3.5" /> {facility.phone}
                 </p>
               )}
             </div>
@@ -552,9 +523,7 @@ function EmptyState() {
       <h3 className="font-semibold text-lg text-foreground mb-2">No programs found</h3>
       <p className="text-muted-foreground max-w-md mx-auto">
         Try adjusting your search terms or filters. You can also use the{" "}
-        <Link href="/find" className="text-primary hover:underline">
-          Guided Finder
-        </Link>{" "}
+        <Link href="/find" className="text-primary hover:underline">Guided Finder</Link>{" "}
         for personalized recommendations.
       </p>
     </div>
