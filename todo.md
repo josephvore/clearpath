@@ -68,3 +68,13 @@
 - [x] Frontend: Admin human review queue interface
 - [x] Frontend: Admin field change history view
 - [x] Tests: Update vitest tests for new endpoints and schema (54 tests passing)
+
+## Full Page Audit (v3)
+
+- [x] Audit: Homepage - no errors
+- [x] Audit: Search page - no errors
+- [x] Audit: Program detail page - verified
+- [x] Audit: Guided finder - all 5 steps work
+- [x] Audit: Admin dashboard - all 6 tabs work
+- [x] Fix: admin.qualityMetrics/admin.stats 500 error (Drizzle CASE expression GROUP BY mismatch)
+- [x] Re-run tests after fixes (54/54 pass, 0 TS errors, 0 console errors, 0 network errors)

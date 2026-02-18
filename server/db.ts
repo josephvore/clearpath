@@ -729,24 +729,20 @@ export async function getQualityMetrics() {
     .from(facilities)
     .where(isNotNull(facilities.qualityScore));
 
-  // Quality distribution
+  // Quality distribution - use raw SQL to avoid Drizzle column qualification mismatch
+  const caseExpr = sql`CASE 
+    WHEN \`facilities\`.\`qualityScore\` >= 0.8 THEN 'high'
+    WHEN \`facilities\`.\`qualityScore\` >= 0.5 THEN 'medium'
+    WHEN \`facilities\`.\`qualityScore\` > 0 THEN 'low'
+    ELSE 'unscored'
+  END`;
   const distribution = await db
     .select({
-      bucket: sql<string>`CASE 
-        WHEN ${facilities.qualityScore} >= 0.8 THEN 'high'
-        WHEN ${facilities.qualityScore} >= 0.5 THEN 'medium'
-        WHEN ${facilities.qualityScore} > 0 THEN 'low'
-        ELSE 'unscored'
-      END`,
+      bucket: sql<string>`${caseExpr}`,
       count: count(),
     })
     .from(facilities)
-    .groupBy(sql`CASE 
-      WHEN ${facilities.qualityScore} >= 0.8 THEN 'high'
-      WHEN ${facilities.qualityScore} >= 0.5 THEN 'medium'
-      WHEN ${facilities.qualityScore} > 0 THEN 'low'
-      ELSE 'unscored'
-    END`);
+    .groupBy(caseExpr);
 
   return {
     avgQuality: avgResult.avgQuality ?? 0,
