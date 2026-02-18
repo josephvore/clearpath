@@ -64,7 +64,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                 <Heart className="w-4.5 h-4.5 text-primary-foreground" />
               </div>
               <span className="font-serif font-bold text-xl text-foreground tracking-tight">
-                EquipFlow
+                ClearPath
               </span>
             </Link>
 
@@ -187,7 +187,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                 <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
                   <Heart className="w-3.5 h-3.5 text-primary-foreground" />
                 </div>
-                <span className="font-serif font-bold text-foreground">EquipFlow</span>
+                <span className="font-serif font-bold text-foreground">ClearPath</span>
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Helping individuals and families discover treatment programs through
@@ -228,7 +228,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
             <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
               <Shield className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
               <p className="text-xs text-amber-800 leading-relaxed">
-                <strong>Disclaimer:</strong> EquipFlow is an informational tool only and does not provide medical advice,
+                <strong>Disclaimer:</strong> ClearPath is an informational tool only and does not provide medical advice,
                 diagnosis, or treatment recommendations. Information shown is extracted from public sources using AI and
                 may contain inaccuracies. Always verify directly with providers. If you are in crisis, call 988 or 911.
               </p>

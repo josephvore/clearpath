@@ -1,4 +1,4 @@
-# EquipFlow - Treatment Program Discovery Platform TODO
+# ClearPath - Treatment Program Discovery Platform TODO
 
 - [x] Database schema: organizations, facilities, programs tables
 - [x] Database schema: tags, program_tags tables
@@ -35,3 +35,7 @@
 - [x] Safety: "Not medical advice" disclaimers
 - [x] Safety: Unknown/unverified labeling for low-confidence data
 - [x] Write vitest tests for backend procedures
+- [x] Rename all "EquipFlow" references to "ClearPath" in frontend
+- [x] Rename all "equipflow" references to "clearpath" in config/package
+- [x] Update VITE_APP_TITLE to ClearPath (user must update via Settings > General in Management UI)
+- [ ] Push code to josephvore/clearpath GitHub repo

@@ -99,7 +99,7 @@ export default function AdminDashboard() {
             <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
               <Heart className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-serif font-bold text-foreground">EquipFlow</span>
+            <span className="font-serif font-bold text-foreground">ClearPath</span>
           </Link>
           <p className="text-xs text-muted-foreground mt-1">Admin Dashboard</p>
         </div>

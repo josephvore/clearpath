@@ -92,7 +92,7 @@ export default function Home() {
         <div className="container">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-foreground mb-3">
-              How EquipFlow Works
+              How ClearPath Works
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               We crawl public provider websites and directories, then use AI to extract
