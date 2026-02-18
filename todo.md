@@ -78,3 +78,17 @@
 - [x] Audit: Admin dashboard - all 6 tabs work
 - [x] Fix: admin.qualityMetrics/admin.stats 500 error (Drizzle CASE expression GROUP BY mismatch)
 - [x] Re-run tests after fixes (54/54 pass, 0 TS errors, 0 console errors, 0 network errors)
+
+## Real Data Ingestion (v4)
+
+- [x] Fix guided finder matching with progressive fallback strategy
+- [x] Fix assertions/citations generation in ingestion pipeline
+- [x] Geocode all facilities with missing lat/lng
+- [x] Link orphaned programs to facilities
+- [x] Clean up temporary ingestion scripts
+
+- [x] Ingest real treatment provider websites via admin panel (77 programs, 5 orgs, 6 facilities)
+- [x] Verify ingestion jobs complete successfully
+- [x] Verify real programs appear in search results (list + map view)
+- [x] Verify program detail pages display real data with citations
+- [x] Verify admin dashboard shows real stats

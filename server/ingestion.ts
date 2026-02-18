@@ -501,33 +501,60 @@ async function writeAssertions(
   citations: Record<string, { excerpt: string }> | undefined,
   confidenceMap: Record<string, number> | number,
   sourceId: number,
-  validationResults?: Record<string, boolean>
+  validationResults?: Record<string, boolean>,
+  extractedFields?: Record<string, any>
 ) {
-  if (!citations) return;
-  for (const [field, citation] of Object.entries(citations)) {
-    const confidence = typeof confidenceMap === "number" ? confidenceMap : confidenceMap[field] ?? 0.5;
-    const validated = validationResults?.[field];
-    await db.createAssertion({
-      entityType,
-      entityId,
-      fieldPath: `${entityType}.${field}`,
-      valueJson: { field, excerpt: citation.excerpt },
-      confidence,
-      method: "llm",
-      sourceId,
-      sourceExcerpt: citation.excerpt.substring(0, 300),
-      validated: validated !== undefined,
-      validationResult: validated !== undefined ? (validated ? "pass" : "fail") : undefined,
-    });
-
-    // Create review item for low-confidence assertions
-    if (confidence < 0.4) {
-      await db.createReviewItem({
-        reviewType: "low_confidence",
+  // Generate assertions from citations if available
+  if (citations) {
+    for (const [field, citation] of Object.entries(citations)) {
+      const confidence = typeof confidenceMap === "number" ? confidenceMap : confidenceMap[field] ?? 0.5;
+      const validated = validationResults?.[field];
+      await db.createAssertion({
         entityType,
         entityId,
-        priority: confidence < 0.2 ? "high" : "medium",
-        details: { reason: `Low confidence (${confidence.toFixed(2)}) on field: ${field}`, fields: [field] },
+        fieldPath: `${entityType}.${field}`,
+        valueJson: { field, excerpt: citation.excerpt },
+        confidence,
+        method: "llm",
+        sourceId,
+        sourceExcerpt: citation.excerpt.substring(0, 300),
+        validated: validated !== undefined,
+        validationResult: validated !== undefined ? (validated ? "pass" : "fail") : undefined,
+      });
+
+      if (confidence < 0.4) {
+        await db.createReviewItem({
+          reviewType: "low_confidence",
+          entityType,
+          entityId,
+          priority: confidence < 0.2 ? "high" : "medium",
+          details: { reason: `Low confidence (${confidence.toFixed(2)}) on field: ${field}`, fields: [field] },
+        });
+      }
+    }
+  }
+
+  // Also generate assertions from extracted fields even without citations
+  // This ensures every extracted data point has a provenance record
+  if (extractedFields) {
+    for (const [field, value] of Object.entries(extractedFields)) {
+      if (value === undefined || value === null || field === "confidence" || field === "citations") continue;
+      // Skip if we already wrote a citation-based assertion for this field
+      if (citations && citations[field]) continue;
+      const confidence = typeof confidenceMap === "number" ? confidenceMap : confidenceMap[field] ?? 0.5;
+      const validated = validationResults?.[field];
+      const valueStr = typeof value === "string" ? value : JSON.stringify(value);
+      await db.createAssertion({
+        entityType,
+        entityId,
+        fieldPath: `${entityType}.${field}`,
+        valueJson: { field, value: valueStr.substring(0, 500) },
+        confidence,
+        method: "llm",
+        sourceId,
+        sourceExcerpt: `Extracted from page: ${field} = ${valueStr.substring(0, 200)}`,
+        validated: validated !== undefined,
+        validationResult: validated !== undefined ? (validated ? "pass" : "fail") : undefined,
       });
     }
   }
@@ -621,6 +648,33 @@ async function computeAndStoreQuality(facilityId: number) {
   });
 }
 
+async function computeProgramQuality(programId: number, extracted: ExtractionResult["programs"][0]) {
+  // Compute completeness based on how many fields are populated
+  const fields = ["name", "level_of_care", "description", "duration", "schedule_text", "eligibility"];
+  const arrayFields = ["modalities", "specialties", "conditions", "populations", "payment_options", "specializations"];
+  let filled = 0;
+  let total = fields.length + arrayFields.length;
+  for (const f of fields) {
+    if ((extracted as any)[f] && (extracted as any)[f] !== "unknown") filled++;
+  }
+  for (const f of arrayFields) {
+    if ((extracted as any)[f] && Array.isArray((extracted as any)[f]) && (extracted as any)[f].length > 0) filled++;
+  }
+  const completeness = total > 0 ? filled / total : 0;
+
+  // Average confidence from the confidence map
+  const confValues = Object.values(extracted.confidence).filter((v): v is number => typeof v === "number");
+  const avgConf = confValues.length > 0 ? confValues.reduce((a, b) => a + b, 0) / confValues.length : 0.5;
+
+  // Quality = 50% completeness + 50% confidence
+  const qualityScore = (completeness * 0.5) + (avgConf * 0.5);
+
+  await db.updateProgram(programId, {
+    qualityScore,
+    completenessScore: completeness,
+  });
+}
+
 // ============================================================================
 // Main ingestion pipeline
 // ============================================================================
@@ -666,7 +720,7 @@ export async function processIngestionJob(jobId: number): Promise<void> {
   }
 }
 
-async function ingestUrl(url: string) {
+export async function ingestUrl(url: string) {
   const stats = { entitiesCreated: 0, entitiesUpdated: 0, assertionsCreated: 0, sourcesCreated: 0, pagesProcessed: 0, reviewItemsCreated: 0 };
 
   console.log(`[Ingestion] Fetching: ${url}`);
@@ -724,17 +778,17 @@ async function ingestUrl(url: string) {
   const orgId = await resolveOrganization(extracted.organization, domain);
   stats.entitiesCreated++;
 
-  await writeAssertions("organization", orgId, extracted.organization.citations, extracted.organization.confidence, source.id);
+  await writeAssertions("organization", orgId, extracted.organization.citations, extracted.organization.confidence, source.id, undefined, extracted.organization);
 
   // Resolve facility
   const facilityId = await resolveFacility(extracted.facility ?? undefined, orgId, domain);
   if (facilityId) {
     stats.entitiesCreated++;
-    if (extracted.facility?.citations) {
+    if (extracted.facility) {
       const validationResults: Record<string, boolean> = {};
       if (extracted.facility.phone) validationResults.phone = validatePhone(extracted.facility.phone).valid;
       if (extracted.facility.website) validationResults.website = validateUrl(extracted.facility.website).valid;
-      await writeAssertions("facility", facilityId, extracted.facility.citations, extracted.facility.confidence, source.id, validationResults);
+      await writeAssertions("facility", facilityId, extracted.facility.citations, extracted.facility.confidence, source.id, validationResults, extracted.facility);
     }
     // Write facility tags
     await writeFacilityTags(facilityId, extracted.facility ?? undefined);
@@ -766,9 +820,12 @@ async function ingestUrl(url: string) {
     });
 
     stats.entitiesCreated++;
-    await writeAssertions("program", programResult.id, prog.citations, prog.confidence, source.id);
-    stats.assertionsCreated += Object.keys(prog.citations ?? {}).length;
+    await writeAssertions("program", programResult.id, prog.citations, prog.confidence, source.id, undefined, prog);
+    stats.assertionsCreated += Object.keys(prog.citations ?? {}).length + Object.keys(prog).filter(k => k !== 'confidence' && k !== 'citations' && prog[k as keyof typeof prog] != null).length;
     await writeProgramTags(programResult.id, prog);
+
+    // Compute program quality score
+    await computeProgramQuality(programResult.id, prog);
   }
 
   console.log(`[Ingestion] Completed: ${url} - ${stats.entitiesCreated} entities, ${stats.assertionsCreated} assertions`);

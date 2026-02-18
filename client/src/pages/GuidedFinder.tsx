@@ -358,6 +358,21 @@ export default function GuidedFinder() {
                   </Card>
                 ) : (
                   <div className="space-y-4">
+                    {(matchMutation.data as any).matchStrategy === "level_of_care_only" && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                        We broadened your search to show all programs matching your level of care. Specific condition matches were not found in our database yet.
+                      </div>
+                    )}
+                    {(matchMutation.data as any).matchStrategy === "text_search" && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                        We broadened your search to find programs related to your concerns. Exact filter matches were not available.
+                      </div>
+                    )}
+                    {(matchMutation.data as any).matchStrategy === "browse_all" && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                        No specific matches found. Showing top-rated programs from our database.
+                      </div>
+                    )}
                     <p className="text-sm text-muted-foreground">
                       Found{" "}
                       <span className="font-medium text-foreground">

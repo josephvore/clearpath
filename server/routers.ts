@@ -131,12 +131,16 @@ export const appRouter = router({
           budget: input.budget,
         });
 
-        const searchResults = await db.searchPrograms({
+        // Progressive fallback matching strategy:
+        // 1. Try with all filters (level of care + conditions tags)
+        // 2. If no results, try with just level of care
+        // 3. If still no results, try with just conditions/query
+        // 4. Final fallback: return all programs sorted by quality
+
+        let searchResults = await db.searchPrograms({
           levelOfCare: input.levelOfCareTarget,
           telehealth: input.telehealthOk || undefined,
           conditions: input.primaryConcerns,
-          paymentOptions: input.insuranceType,
-          insurance: input.insuranceType,
           substances: input.substanceList,
           lat: input.lat,
           lng: input.lng,
@@ -144,9 +148,41 @@ export const appRouter = router({
           limit: 20,
         });
 
+        let matchStrategy = "exact";
+
+        // Fallback 1: Drop conditions filter, keep level of care
+        if (searchResults.total === 0 && input.levelOfCareTarget?.length) {
+          searchResults = await db.searchPrograms({
+            levelOfCare: input.levelOfCareTarget,
+            telehealth: input.telehealthOk || undefined,
+            lat: input.lat,
+            lng: input.lng,
+            radiusMiles: input.distanceMiles || 50,
+            limit: 20,
+          });
+          matchStrategy = "level_of_care_only";
+        }
+
+        // Fallback 2: Use concerns as a text query instead of tag filter
+        if (searchResults.total === 0 && input.primaryConcerns?.length) {
+          searchResults = await db.searchPrograms({
+            query: input.primaryConcerns.join(" "),
+            telehealth: input.telehealthOk || undefined,
+            limit: 20,
+          });
+          matchStrategy = "text_search";
+        }
+
+        // Fallback 3: Return all programs sorted by quality
+        if (searchResults.total === 0) {
+          searchResults = await db.searchPrograms({ limit: 20 });
+          matchStrategy = "browse_all";
+        }
+
         return {
           results: searchResults.results,
           total: searchResults.total,
+          matchStrategy,
           matchCriteria: {
             levelOfCare: input.levelOfCareTarget,
             location: input.location,

@@ -259,15 +259,79 @@ export async function searchPrograms(filters: {
       conditions.push(sql`JSON_CONTAINS(${facilities.acceptedInsurance}, ${JSON.stringify(ins)})`);
     }
   }
-  if (filters.substances?.length) {
-    for (const sub of filters.substances) {
-      conditions.push(sql`JSON_CONTAINS(${facilities.substancesTreated}, ${JSON.stringify(sub)})`);
-    }
-  }
   if (filters.accreditations?.length) {
     for (const acc of filters.accreditations) {
       conditions.push(sql`JSON_CONTAINS(${facilities.accreditations}, ${JSON.stringify(acc)})`);
     }
+  }
+
+  // Tag-based filters using program_tags + tags tables
+  // For conditions (primary concerns), match against condition/substance tags
+  if (filters.conditions?.length) {
+    const likePatterns = filters.conditions.map(c => {
+      // Map user-friendly names to tag-friendly patterns
+      const normalized = c.toLowerCase().replace(/ use$/i, "").trim();
+      return `%${normalized}%`;
+    });
+    conditions.push(
+      sql`${programs.id} IN (
+        SELECT pt.programId FROM program_tags pt
+        JOIN tags t ON pt.tagId = t.id
+        WHERE t.namespace IN ('condition', 'substance', 'specialty')
+        AND (${sql.join(
+          likePatterns.map(p => sql`t.label LIKE ${p}`),
+          sql` OR `
+        )})
+      )`
+    );
+  }
+
+  // Substance filter via tags
+  if (filters.substances?.length) {
+    const likePatterns = filters.substances.map(s => `%${s.toLowerCase()}%`);
+    conditions.push(
+      sql`${programs.id} IN (
+        SELECT pt.programId FROM program_tags pt
+        JOIN tags t ON pt.tagId = t.id
+        WHERE t.namespace = 'substance'
+        AND (${sql.join(
+          likePatterns.map(p => sql`t.label LIKE ${p}`),
+          sql` OR `
+        )})
+      )`
+    );
+  }
+
+  // Specialties filter via tags
+  if (filters.specialties?.length) {
+    const likePatterns = filters.specialties.map(s => `%${s.toLowerCase()}%`);
+    conditions.push(
+      sql`${programs.id} IN (
+        SELECT pt.programId FROM program_tags pt
+        JOIN tags t ON pt.tagId = t.id
+        WHERE t.namespace IN ('specialty', 'modality')
+        AND (${sql.join(
+          likePatterns.map(p => sql`t.label LIKE ${p}`),
+          sql` OR `
+        )})
+      )`
+    );
+  }
+
+  // Population filter via tags
+  if (filters.populations?.length) {
+    const likePatterns = filters.populations.map(p => `%${p.toLowerCase()}%`);
+    conditions.push(
+      sql`${programs.id} IN (
+        SELECT pt.programId FROM program_tags pt
+        JOIN tags t ON pt.tagId = t.id
+        WHERE t.namespace = 'population'
+        AND (${sql.join(
+          likePatterns.map(p => sql`t.label LIKE ${p}`),
+          sql` OR `
+        )})
+      )`
+    );
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
