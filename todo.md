@@ -1,0 +1,37 @@
+# EquipFlow - Treatment Program Discovery Platform TODO
+
+- [x] Database schema: organizations, facilities, programs tables
+- [x] Database schema: tags, program_tags tables
+- [x] Database schema: sources, assertions (provenance) tables
+- [x] Database schema: ingestion_jobs table for crawler queue
+- [x] Database schema: user_needs_profiles table for guided matching
+- [x] Database indexes for search performance
+- [x] Run migrations (pnpm db:push)
+- [x] Backend: DB query helpers for all entities
+- [x] Backend: Search endpoint with filters and ranking
+- [x] Backend: Program detail endpoint with citations
+- [x] Backend: Match endpoint for guided finder
+- [x] Backend: Admin ingest endpoint (seed URL)
+- [x] Backend: Admin recrawl endpoint
+- [x] Backend: Admin jobs list endpoint
+- [x] Backend: Admin stale entities endpoint
+- [x] Ingestion worker: URL fetcher with rate limiting and robots.txt
+- [x] Ingestion worker: HTML to clean text extraction
+- [x] Ingestion worker: LLM extraction pipeline with structured JSON
+- [x] Ingestion worker: Entity resolution and deduplication
+- [x] Ingestion worker: Write sources, assertions, program_tags
+- [x] Frontend: Design system (colors, fonts, theme)
+- [x] Frontend: Public navigation layout with crisis banner
+- [x] Frontend: Home/Search page with search bar and filters
+- [x] Frontend: Interactive map view with facility markers
+- [x] Frontend: Search results list with program cards
+- [x] Frontend: Program detail page with citations and confidence
+- [x] Frontend: Guided finder flow with step-by-step questions
+- [x] Frontend: Admin dashboard with sidebar navigation
+- [x] Frontend: Admin - add seed URLs and manage ingestion
+- [x] Frontend: Admin - review extracted data and job status
+- [x] Frontend: Admin - stale entities management
+- [x] Safety: Crisis disclaimer banner and 988 routing
+- [x] Safety: "Not medical advice" disclaimers
+- [x] Safety: Unknown/unverified labeling for low-confidence data
+- [x] Write vitest tests for backend procedures

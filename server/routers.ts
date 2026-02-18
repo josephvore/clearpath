@@ -1,28 +1,268 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, router } from "./_core/trpc";
+import { z } from "zod";
+import * as db from "./db";
+import { processIngestionJob } from "./ingestion";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
+
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  // ========================================================================
+  // Search
+  // ========================================================================
+  search: router({
+    programs: publicProcedure
+      .input(
+        z.object({
+          query: z.string().optional(),
+          levelOfCare: z.array(z.string()).optional(),
+          telehealth: z.boolean().optional(),
+          specialties: z.array(z.string()).optional(),
+          conditions: z.array(z.string()).optional(),
+          populations: z.array(z.string()).optional(),
+          paymentOptions: z.array(z.string()).optional(),
+          state: z.string().optional(),
+          city: z.string().optional(),
+          lat: z.number().optional(),
+          lng: z.number().optional(),
+          radiusMiles: z.number().optional(),
+          limit: z.number().min(1).max(100).optional(),
+          offset: z.number().min(0).optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        return db.searchPrograms(input);
+      }),
+
+    tags: publicProcedure
+      .input(z.object({ namespace: z.string().optional() }).optional())
+      .query(async ({ input }) => {
+        if (input?.namespace) {
+          return db.getTagsByNamespace(input.namespace);
+        }
+        return db.getAllTags();
+      }),
+  }),
+
+  // ========================================================================
+  // Program Detail
+  // ========================================================================
+  program: router({
+    detail: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        return db.getProgramDetail(input.id);
+      }),
+
+    assertions: publicProcedure
+      .input(
+        z.object({
+          entityType: z.enum(["organization", "facility", "program"]),
+          entityId: z.number(),
+        })
+      )
+      .query(async ({ input }) => {
+        return db.getAssertionsForEntity(input.entityType, input.entityId);
+      }),
+  }),
+
+  // ========================================================================
+  // Guided Match
+  // ========================================================================
+  match: router({
+    find: publicProcedure
+      .input(
+        z.object({
+          location: z.string().optional(),
+          lat: z.number().optional(),
+          lng: z.number().optional(),
+          distanceMiles: z.number().optional(),
+          levelOfCareTarget: z.array(z.string()).optional(),
+          ageGroup: z.string().optional(),
+          primaryConcerns: z.array(z.string()).optional(),
+          substanceRelated: z.boolean().optional(),
+          substanceList: z.array(z.string()).optional(),
+          telehealthOk: z.boolean().optional(),
+          insuranceType: z.array(z.string()).optional(),
+          budget: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        // Save the profile
+        await db.createUserNeedsProfile({
+          location: input.location,
+          lat: input.lat ? String(input.lat) : undefined,
+          lng: input.lng ? String(input.lng) : undefined,
+          distanceMiles: input.distanceMiles,
+          levelOfCareTarget: input.levelOfCareTarget,
+          ageGroup: input.ageGroup,
+          primaryConcerns: input.primaryConcerns,
+          substanceRelated: input.substanceRelated,
+          substanceList: input.substanceList,
+          telehealthOk: input.telehealthOk,
+          insuranceType: input.insuranceType,
+          budget: input.budget,
+        });
+
+        // Search with the user's criteria
+        const searchResults = await db.searchPrograms({
+          levelOfCare: input.levelOfCareTarget,
+          telehealth: input.telehealthOk || undefined,
+          conditions: input.primaryConcerns,
+          paymentOptions: input.insuranceType,
+          lat: input.lat,
+          lng: input.lng,
+          radiusMiles: input.distanceMiles || 50,
+          limit: 20,
+        });
+
+        return {
+          results: searchResults.results,
+          total: searchResults.total,
+          matchCriteria: {
+            levelOfCare: input.levelOfCareTarget,
+            location: input.location,
+            concerns: input.primaryConcerns,
+            insurance: input.insuranceType,
+          },
+        };
+      }),
+  }),
+
+  // ========================================================================
+  // Map
+  // ========================================================================
+  map: router({
+    facilities: publicProcedure
+      .input(
+        z.object({
+          state: z.string().optional(),
+          lat: z.number().optional(),
+          lng: z.number().optional(),
+          radiusMiles: z.number().optional(),
+        }).optional()
+      )
+      .query(async ({ input }) => {
+        return db.getFacilitiesForMap(input ?? {});
+      }),
+  }),
+
+  // ========================================================================
+  // Admin
+  // ========================================================================
+  admin: router({
+    stats: adminProcedure.query(async () => {
+      const [entityStats, jobStats] = await Promise.all([
+        db.getDashboardStats(),
+        db.getJobStats(),
+      ]);
+      return { entities: entityStats, jobs: jobStats };
+    }),
+
+    ingest: adminProcedure
+      .input(
+        z.object({
+          url: z.string().url(),
+          jobType: z
+            .enum(["ingest_seed_url", "crawl_domain"])
+            .default("ingest_seed_url"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const domain = new URL(input.url).hostname;
+        const job = await db.createIngestionJob({
+          jobType: input.jobType,
+          payload: {
+            url: input.url,
+            domain,
+          },
+          status: "pending",
+          createdBy: ctx.user.id,
+        });
+
+        // Start processing async (don't await)
+        processIngestionJob(job.id).catch((err) => {
+          console.error(`[Ingestion] Job ${job.id} failed:`, err);
+        });
+
+        return { jobId: job.id };
+      }),
+
+    recrawl: adminProcedure
+      .input(
+        z.object({
+          entityType: z.enum(["organization", "facility", "program"]),
+          entityId: z.number(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const job = await db.createIngestionJob({
+          jobType: "recrawl_entity",
+          payload: {
+            entityType: input.entityType,
+            entityId: input.entityId,
+          },
+          status: "pending",
+          createdBy: ctx.user.id,
+        });
+
+        processIngestionJob(job.id).catch((err) => {
+          console.error(`[Ingestion] Recrawl job ${job.id} failed:`, err);
+        });
+
+        return { jobId: job.id };
+      }),
+
+    jobs: adminProcedure
+      .input(
+        z.object({
+          status: z.string().optional(),
+          limit: z.number().min(1).max(100).optional(),
+          offset: z.number().min(0).optional(),
+        }).optional()
+      )
+      .query(async ({ input }) => {
+        return db.getIngestionJobs(input ?? {});
+      }),
+
+    staleEntities: adminProcedure
+      .input(z.object({ days: z.number().min(1).default(120) }).optional())
+      .query(async ({ input }) => {
+        return db.getStaleEntities(input?.days ?? 120);
+      }),
+
+    refreshStale: adminProcedure
+      .input(z.object({ days: z.number().min(1).default(120) }))
+      .mutation(async ({ input, ctx }) => {
+        const job = await db.createIngestionJob({
+          jobType: "refresh_stale",
+          payload: {
+            lastVerifiedBefore: new Date(
+              Date.now() - input.days * 24 * 60 * 60 * 1000
+            ).toISOString(),
+          },
+          status: "pending",
+          createdBy: ctx.user.id,
+        });
+
+        processIngestionJob(job.id).catch((err) => {
+          console.error(`[Ingestion] Refresh job ${job.id} failed:`, err);
+        });
+
+        return { jobId: job.id };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
