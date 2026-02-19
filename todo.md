@@ -142,4 +142,4 @@
 - [x] Geocode new facilities (all facilities have lat/lng coordinates)
 - [x] Compute quality scores for all new entities (avg program: 0.55, avg facility: 0.62)
 - [x] Run tests and verify all features (60/60 tests passing)
-- [ ] Push to GitHub and save checkpoint
+- [x] Push to GitHub and save checkpoint
