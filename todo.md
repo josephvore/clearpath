@@ -130,4 +130,4 @@
 - [x] Add Nearby Programs frontend page with map and list view (split/list/map modes)
 - [x] Add Nearby Programs link to navigation (header + mobile + footer)
 - [x] Run tests and verify all features (60/60 tests passing)
-- [ ] Push to GitHub and save checkpoint
+- [x] Push to GitHub and save checkpoint
