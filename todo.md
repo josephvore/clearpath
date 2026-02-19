@@ -92,3 +92,21 @@
 - [x] Verify real programs appear in search results (list + map view)
 - [x] Verify program detail pages display real data with citations
 - [x] Verify admin dashboard shows real stats
+
+## More Providers & Tag Enrichment (v5)
+
+- [x] Ingest additional treatment providers (277 programs from 22 orgs, 24 facilities)
+- [x] Find accessible treatment provider URLs (24 URLs successfully ingested)
+- [x] Ingest SAMHSA-listed providers and directories
+- [x] Ingest individual facility websites with rich program data
+- [x] Run LLM-based tag enrichment pass on all existing programs (2,275 new tags)
+- [x] Add specific condition tags (209/277 programs now have condition tags)
+- [x] Add substance-specific tags (163/277 programs now have substance tags)
+- [x] Add population tags (adults, adolescents, veterans, etc.)
+- [x] Verify Guided Finder returns precise matches (24 results for Alcohol+Residential)
+- [x] Verify search filters work with enriched tags
+- [ ] Push updated code and data to GitHub
+- [x] Geocode all 10 facilities missing coordinates
+- [x] Link all 28 orphaned programs to facilities (0 remaining)
+- [x] Compute quality scores for all 277 programs and 24 facilities
+- [x] All 54 vitest tests passing
