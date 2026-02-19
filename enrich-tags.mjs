@@ -227,7 +227,7 @@ const [underTagged] = await conn.query(`
   LEFT JOIN organizations o ON o.id = p.organizationId
   HAVING conditionCount < 2
   ORDER BY conditionCount ASC
-  LIMIT 50
+  LIMIT 200
 `);
 
 console.log(`\n=== LLM enrichment for ${underTagged.length} under-tagged programs ===`);
@@ -354,7 +354,7 @@ console.log(`\nLLM tags added: ${llmTagsAdded}`);
 // ============================================================================
 
 const [ungeocodedFacilities] = await conn.query(`
-  SELECT id, name, address, city, state FROM facilities WHERE lat IS NULL OR lat = 0
+  SELECT id, name, addressLine1 as address, city, state FROM facilities WHERE lat IS NULL OR lng IS NULL OR lat = '' OR lng = ''
 `);
 
 if (ungeocodedFacilities.length > 0) {
@@ -443,9 +443,10 @@ console.log("\n========== ENRICHMENT COMPLETE ==========");
 console.log("Tags by namespace:");
 for (const t of finalTags) console.log(`  ${t.namespace}: ${t.cnt}`);
 console.log(`Total program-tag links: ${finalPT[0].cnt}`);
-console.log(`Programs with condition tags: ${finalConditions[0].cnt}/277`);
-console.log(`Programs with substance tags: ${finalSubstances[0].cnt}/277`);
-console.log(`Programs with NO tags: ${finalNoTags[0].cnt}/277`);
+const [totalProgs] = await conn.query('SELECT COUNT(*) as cnt FROM programs');
+console.log(`Programs with condition tags: ${finalConditions[0].cnt}/${totalProgs[0].cnt}`);
+console.log(`Programs with substance tags: ${finalSubstances[0].cnt}/${totalProgs[0].cnt}`);
+console.log(`Programs with NO tags: ${finalNoTags[0].cnt}/${totalProgs[0].cnt}`);
 
 await conn.end();
 process.exit(0);

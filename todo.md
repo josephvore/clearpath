@@ -110,3 +110,12 @@
 - [x] Link all 28 orphaned programs to facilities (0 remaining)
 - [x] Compute quality scores for all 277 programs and 24 facilities
 - [x] All 54 vitest tests passing
+
+## Mass Provider Ingestion (v6)
+
+- [x] Research and compile 117 treatment provider URLs (57 succeeded, 60 blocked by 403/404)
+- [x] Run batch ingestion - 516 new entities, 2127 new assertions from 57 URLs
+- [x] Run tag enrichment - 2045 rule-based + 4410 LLM tags = 10,310 total program-tag links
+- [x] Geocode 26 new facilities (60/62 total geocoded), link 83 orphaned programs (0 remaining)
+- [x] Verify data integrity - 54/54 tests passing, quality scores computed for all entities
+- [ ] Push to GitHub and save checkpoint
