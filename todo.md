@@ -105,7 +105,7 @@
 - [x] Add population tags (adults, adolescents, veterans, etc.)
 - [x] Verify Guided Finder returns precise matches (24 results for Alcohol+Residential)
 - [x] Verify search filters work with enriched tags
-- [ ] Push updated code and data to GitHub
+- [x] Push updated code and data to GitHub
 - [x] Geocode all 10 facilities missing coordinates
 - [x] Link all 28 orphaned programs to facilities (0 remaining)
 - [x] Compute quality scores for all 277 programs and 24 facilities
