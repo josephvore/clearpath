@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   MapPin,
   Loader2,
@@ -17,10 +18,11 @@ import {
   Locate,
   Map as MapIcon,
   List,
+  Search,
 } from "lucide-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { Link } from "wouter";
-import { MapView } from "@/components/Map";
+import { MapView, loadMapScript } from "@/components/Map";
 import {
   LEVEL_OF_CARE_OPTIONS,
   formatLevelOfCare,
@@ -40,9 +42,13 @@ export default function NearbyPrograms() {
   const [radiusMiles, setRadiusMiles] = useState(50);
   const [levelOfCare, setLevelOfCare] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("split");
+  const [addressQuery, setAddressQuery] = useState("");
+  const [geocoding, setGeocoding] = useState(false);
   const mapRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const circleRef = useRef<google.maps.Circle | null>(null);
+  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const mapReadyRef = useRef(false);
 
   const queryInput = useMemo(
     () =>
@@ -62,12 +68,28 @@ export default function NearbyPrograms() {
     enabled: !!queryInput,
   });
 
+  // Eagerly load Google Maps script on mount so geocoder is available
+  useEffect(() => {
+    loadMapScript().then(() => {
+      if (!geocoderRef.current) {
+        geocoderRef.current = new google.maps.Geocoder();
+      }
+    });
+  }, []);
+
+  // Initialize geocoder when Google Maps is ready
+  const initGeocoder = useCallback(() => {
+    if (window.google && !geocoderRef.current) {
+      geocoderRef.current = new google.maps.Geocoder();
+    }
+  }, []);
+
   // Reverse geocode to get location name
   const reverseGeocode = useCallback(
     (lat: number, lng: number) => {
-      if (!window.google) return;
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+      initGeocoder();
+      if (!geocoderRef.current) return;
+      geocoderRef.current.geocode({ location: { lat, lng } }, (results, status) => {
         if (status === "OK" && results?.[0]) {
           const components = results[0].address_components;
           const city = components.find((c) =>
@@ -76,11 +98,87 @@ export default function NearbyPrograms() {
           const state = components.find((c) =>
             c.types.includes("administrative_area_level_1")
           )?.short_name;
-          setLocationName([city, state].filter(Boolean).join(", ") || "Your Location");
+          setLocationName(
+            [city, state].filter(Boolean).join(", ") || "Your Location"
+          );
         }
       });
     },
-    []
+    [initGeocoder]
+  );
+
+  // Forward geocode: address/ZIP → coordinates
+  const geocodeAddress = useCallback(
+    async (query: string) => {
+      initGeocoder();
+      if (!query.trim()) return;
+
+      setGeocoding(true);
+      setLocationError("");
+
+      // Ensure Google Maps is loaded before geocoding
+      if (!geocoderRef.current) {
+        try {
+          await loadMapScript();
+          geocoderRef.current = new google.maps.Geocoder();
+        } catch {
+          setGeocoding(false);
+          setLocationError("Maps service unavailable. Please try again.");
+          return;
+        }
+      }
+
+      geocoderRef.current.geocode(
+        { address: query, componentRestrictions: { country: "US" } },
+        (results, status) => {
+          setGeocoding(false);
+          if (status === "OK" && results?.[0]) {
+            const loc = {
+              lat: results[0].geometry.location.lat(),
+              lng: results[0].geometry.location.lng(),
+            };
+            setUserLocation(loc);
+
+            // Extract a friendly name from the result
+            const components = results[0].address_components;
+            const city = components.find(
+              (c) =>
+                c.types.includes("locality") ||
+                c.types.includes("sublocality") ||
+                c.types.includes("postal_town")
+            )?.long_name;
+            const state = components.find((c) =>
+              c.types.includes("administrative_area_level_1")
+            )?.short_name;
+            const zip = components.find((c) =>
+              c.types.includes("postal_code")
+            )?.long_name;
+
+            const nameParts = [city, state].filter(Boolean);
+            if (zip && !city) nameParts.unshift(zip);
+            setLocationName(nameParts.join(", ") || results[0].formatted_address);
+          } else if (status === "ZERO_RESULTS") {
+            setLocationError(
+              "No location found for that address. Try a city name, ZIP code, or full address."
+            );
+          } else {
+            setLocationError("Geocoding failed. Please try again.");
+          }
+        }
+      );
+    },
+    [initGeocoder]
+  );
+
+  // Handle search form submit
+  const handleAddressSearch = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (addressQuery.trim()) {
+        geocodeAddress(addressQuery.trim());
+      }
+    },
+    [addressQuery, geocodeAddress]
   );
 
   // Get user's location via browser geolocation
@@ -102,6 +200,7 @@ export default function NearbyPrograms() {
         };
         setUserLocation(loc);
         setLocating(false);
+        setAddressQuery("");
         reverseGeocode(loc.lat, loc.lng);
       },
       (error) => {
@@ -109,11 +208,13 @@ export default function NearbyPrograms() {
         switch (error.code) {
           case error.PERMISSION_DENIED:
             setLocationError(
-              "Location access denied. Please enable location permissions in your browser settings."
+              "Location access denied. Please enable location permissions or search by address below."
             );
             break;
           case error.POSITION_UNAVAILABLE:
-            setLocationError("Location information is unavailable.");
+            setLocationError(
+              "Location unavailable. Try searching by city or ZIP code instead."
+            );
             break;
           case error.TIMEOUT:
             setLocationError("Location request timed out. Please try again.");
@@ -126,12 +227,12 @@ export default function NearbyPrograms() {
     );
   }, [reverseGeocode]);
 
-  // Use a default location (center of US) if user doesn't share location
+  // Use a default location
   const useDefaultLocation = useCallback(() => {
-    // Default to New York City
     const loc = { lat: 40.7128, lng: -74.006 };
     setUserLocation(loc);
     setLocationName("New York, NY (default)");
+    setAddressQuery("");
   }, []);
 
   // Update map markers when data changes
@@ -172,7 +273,7 @@ export default function NearbyPrograms() {
       circleRef.current = new google.maps.Circle({
         map,
         center: userLocation,
-        radius: radiusMiles * 1609.34, // Convert miles to meters
+        radius: radiusMiles * 1609.34,
         fillColor: "#3b82f6",
         fillOpacity: 0.05,
         strokeColor: "#3b82f6",
@@ -242,6 +343,16 @@ export default function NearbyPrograms() {
     );
   };
 
+  // Popular locations for quick search
+  const popularLocations = [
+    { label: "New York, NY", query: "New York, NY" },
+    { label: "Los Angeles, CA", query: "Los Angeles, CA" },
+    { label: "Chicago, IL", query: "Chicago, IL" },
+    { label: "Houston, TX", query: "Houston, TX" },
+    { label: "Miami, FL", query: "Miami, FL" },
+    { label: "Denver, CO", query: "Denver, CO" },
+  ];
+
   return (
     <div className="min-h-[calc(100vh-200px)]">
       {/* Header */}
@@ -267,49 +378,107 @@ export default function NearbyPrograms() {
       <div className="bg-white border-b sticky top-16 z-40">
         <div className="container py-4">
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
-            {/* Location status */}
-            <div className="flex items-center gap-3 flex-1">
+            {/* Location status + search */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
               {userLocation ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                <div className="flex items-center gap-2 flex-wrap flex-1">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
                     <MapPin className="w-4 h-4 text-blue-600" />
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">
                       {locationName || "Location set"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {data?.total ?? 0} programs within {radiusMiles} miles
+                      {data?.total ?? 0} programs within {radiusMiles} mi
                     </p>
                   </div>
+
+                  {/* Inline address search when location is set */}
+                  <form
+                    onSubmit={handleAddressSearch}
+                    className="flex items-center gap-1.5 ml-2"
+                  >
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Change location..."
+                        value={addressQuery}
+                        onChange={(e) => setAddressQuery(e.target.value)}
+                        className="pl-8 h-8 w-44 text-sm"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="ghost"
+                      disabled={geocoding || !addressQuery.trim()}
+                      className="h-8 px-2"
+                    >
+                      {geocoding ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        "Go"
+                      )}
+                    </Button>
+                  </form>
+
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={requestLocation}
-                    className="ml-2"
+                    className="h-8 px-2"
+                    title="Use my GPS location"
                   >
-                    <Locate className="w-3.5 h-3.5 mr-1" />
-                    Update
+                    <Locate className="w-3.5 h-3.5" />
                   </Button>
                 </div>
               ) : (
-                <div className="flex items-center gap-3">
-                  <Button
-                    onClick={requestLocation}
-                    disabled={locating}
-                    className="bg-teal-600 hover:bg-teal-700"
+                <div className="flex flex-col gap-3 w-full">
+                  {/* Address search box (primary) */}
+                  <form
+                    onSubmit={handleAddressSearch}
+                    className="flex items-center gap-2 w-full"
                   >
-                    {locating ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Locate className="w-4 h-4 mr-2" />
-                    )}
-                    Use My Location
-                  </Button>
-                  <span className="text-sm text-muted-foreground">or</span>
-                  <Button variant="outline" onClick={useDefaultLocation}>
-                    Browse from New York
-                  </Button>
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Enter city, ZIP code, or address..."
+                        value={addressQuery}
+                        onChange={(e) => setAddressQuery(e.target.value)}
+                        className="pl-10 h-10"
+                        autoFocus
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      disabled={geocoding || !addressQuery.trim()}
+                      className="bg-teal-600 hover:bg-teal-700 h-10"
+                    >
+                      {geocoding ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Search className="w-4 h-4 mr-2" />
+                      )}
+                      Search
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={requestLocation}
+                      disabled={locating}
+                      className="h-10"
+                      title="Use my GPS location"
+                    >
+                      {locating ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Locate className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </form>
                 </div>
               )}
             </div>
@@ -392,34 +561,40 @@ export default function NearbyPrograms() {
 
       {/* Main content */}
       {!userLocation ? (
-        <div className="container py-20 text-center">
+        <div className="container py-16 text-center">
           <div className="w-20 h-20 rounded-full bg-teal-50 flex items-center justify-center mx-auto mb-6">
             <Navigation className="w-9 h-9 text-teal-600" />
           </div>
           <h2 className="text-xl font-semibold text-foreground mb-2">
-            Share your location to find nearby programs
+            Find treatment programs near you
           </h2>
-          <p className="text-muted-foreground max-w-md mx-auto mb-6">
-            We'll show treatment programs sorted by distance from you, displayed
-            on an interactive map. Your location is never stored.
+          <p className="text-muted-foreground max-w-md mx-auto mb-8">
+            Search by city, ZIP code, or address — or share your browser
+            location. Your location is never stored.
           </p>
-          <div className="flex items-center justify-center gap-3">
-            <Button
-              onClick={requestLocation}
-              disabled={locating}
-              size="lg"
-              className="bg-teal-600 hover:bg-teal-700"
-            >
-              {locating ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Locate className="w-4 h-4 mr-2" />
-              )}
-              Enable Location
-            </Button>
-            <Button variant="outline" size="lg" onClick={useDefaultLocation}>
-              Browse from New York
-            </Button>
+
+          {/* Popular locations */}
+          <div className="max-w-lg mx-auto mb-8">
+            <p className="text-sm text-muted-foreground mb-3">
+              Or try a popular location:
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {popularLocations.map((loc) => (
+                <Button
+                  key={loc.query}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setAddressQuery(loc.query);
+                    geocodeAddress(loc.query);
+                  }}
+                  className="text-sm"
+                >
+                  <MapPin className="w-3.5 h-3.5 mr-1.5" />
+                  {loc.label}
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
       ) : (
@@ -448,6 +623,8 @@ export default function NearbyPrograms() {
                     className="h-full"
                     onMapReady={(map) => {
                       mapRef.current = map;
+                      mapReadyRef.current = true;
+                      initGeocoder();
                     }}
                   />
                 </div>

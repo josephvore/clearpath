@@ -131,3 +131,15 @@
 - [x] Add Nearby Programs link to navigation (header + mobile + footer)
 - [x] Run tests and verify all features (60/60 tests passing)
 - [x] Push to GitHub and save checkpoint
+
+## v8: Address Search + Mass Ingestion (2000+ facilities)
+
+- [x] Add geocoding address/ZIP search box to Nearby Programs page
+- [x] Integrate Google Maps Geocoder for address-to-coordinates conversion
+- [x] Show search location name in header after geocoding
+- [x] Mass-ingest 2000+ new facilities (2,124 facilities, 2,699 active programs across all 50 states)
+- [x] Run tag enrichment on newly ingested programs (38,275 program-tag links)
+- [x] Geocode new facilities (all facilities have lat/lng coordinates)
+- [x] Compute quality scores for all new entities (avg program: 0.55, avg facility: 0.62)
+- [x] Run tests and verify all features (60/60 tests passing)
+- [ ] Push to GitHub and save checkpoint
