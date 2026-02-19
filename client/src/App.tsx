@@ -9,6 +9,7 @@ import Search from "./pages/Search";
 import ProgramDetail from "./pages/ProgramDetail";
 import GuidedFinder from "./pages/GuidedFinder";
 import AdminDashboard from "./pages/AdminDashboard";
+import NearbyPrograms from "./pages/NearbyPrograms";
 import PublicLayout from "./components/PublicLayout";
 
 function Router() {
@@ -18,6 +19,7 @@ function Router() {
       <Route path="/search" component={Search} />
       <Route path="/program/:id" component={ProgramDetail} />
       <Route path="/find" component={GuidedFinder} />
+      <Route path="/nearby" component={NearbyPrograms} />
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/:tab" component={AdminDashboard} />
       <Route path="/404" component={NotFound} />

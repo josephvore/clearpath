@@ -19,6 +19,7 @@ import {
   X,
   Phone,
   ExternalLink,
+  Navigation,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
@@ -77,6 +78,10 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               <NavLink href="/find" active={location === "/find"}>
                 <Compass className="w-4 h-4" />
                 Guided Finder
+              </NavLink>
+              <NavLink href="/nearby" active={location === "/nearby"}>
+                <Navigation className="w-4 h-4" />
+                Nearby
               </NavLink>
               {user?.role === "admin" && (
                 <NavLink href="/admin" active={location.startsWith("/admin")}>
@@ -162,6 +167,13 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               <Compass className="w-4 h-4" />
               Guided Finder
             </MobileNavLink>
+            <MobileNavLink
+              href="/nearby"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Navigation className="w-4 h-4" />
+              Nearby
+            </MobileNavLink>
             {user?.role === "admin" && (
               <MobileNavLink
                 href="/admin"
@@ -202,6 +214,9 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                 </Link>
                 <Link href="/find" className="block text-sm text-muted-foreground hover:text-foreground no-underline">
                   Guided Finder
+                </Link>
+                <Link href="/nearby" className="block text-sm text-muted-foreground hover:text-foreground no-underline">
+                  Nearby Programs
                 </Link>
               </div>
             </div>

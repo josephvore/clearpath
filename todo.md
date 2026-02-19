@@ -119,3 +119,15 @@
 - [x] Geocode 26 new facilities (60/62 total geocoded), link 83 orphaned programs (0 remaining)
 - [x] Verify data integrity - 54/54 tests passing, quality scores computed for all entities
 - [x] Push to GitHub and save checkpoint
+
+## v7: Browser Retry, Nearby Programs, Deduplication
+
+- [x] Deduplicate similar programs - 74 clusters found, 75 programs merged (704→629 active)
+- [x] Retry 25 priority failed URLs via Puppeteer - 10 succeeded, 9 new programs from McLean Hospital
+- [x] Run tag enrichment and quality scores on newly ingested data
+- [x] Build "Nearby Programs" feature with user geolocation and radius search
+- [x] Add Nearby Programs backend procedure (Haversine distance query)
+- [x] Add Nearby Programs frontend page with map and list view (split/list/map modes)
+- [x] Add Nearby Programs link to navigation (header + mobile + footer)
+- [x] Run tests and verify all features (60/60 tests passing)
+- [ ] Push to GitHub and save checkpoint

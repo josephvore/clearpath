@@ -818,6 +818,73 @@ export async function getQualityMetrics() {
 }
 
 // ============================================================================
+// Nearby Programs (Haversine distance)
+// ============================================================================
+
+export async function getNearbyPrograms(opts: {
+  lat: number;
+  lng: number;
+  radiusMiles: number;
+  levelOfCare?: string[];
+  limit?: number;
+}) {
+  const db = await getDb();
+  if (!db) return { results: [], total: 0 };
+
+  const limit = opts.limit ?? 50;
+
+  // Haversine formula in SQL for distance in miles
+  const distanceExpr = sql<number>`(
+    3959 * ACOS(
+      LEAST(1, COS(RADIANS(${opts.lat})) * COS(RADIANS(CAST(${facilities.lat} AS DECIMAL(10,7))))
+      * COS(RADIANS(CAST(${facilities.lng} AS DECIMAL(10,7))) - RADIANS(${opts.lng}))
+      + SIN(RADIANS(${opts.lat})) * SIN(RADIANS(CAST(${facilities.lat} AS DECIMAL(10,7)))))
+    )
+  )`;
+
+  // Bounding box pre-filter for performance
+  const latDelta = opts.radiusMiles / 69.0;
+  const lngDelta = opts.radiusMiles / (69.0 * Math.cos((opts.lat * Math.PI) / 180));
+
+  const conditions: any[] = [
+    isNotNull(facilities.lat),
+    isNotNull(facilities.lng),
+    gte(facilities.lat, String(opts.lat - latDelta)),
+    lte(facilities.lat, String(opts.lat + latDelta)),
+    gte(facilities.lng, String(opts.lng - lngDelta)),
+    lte(facilities.lng, String(opts.lng + lngDelta)),
+    eq(programs.status, "active"),
+  ];
+
+  if (opts.levelOfCare?.length) {
+    conditions.push(inArray(programs.levelOfCare, opts.levelOfCare as any));
+  }
+
+  const results = await db
+    .select({
+      program: programs,
+      facility: facilities,
+      organization: organizations,
+      distance: distanceExpr,
+    })
+    .from(programs)
+    .innerJoin(facilities, eq(programs.facilityId, facilities.id))
+    .leftJoin(organizations, eq(programs.organizationId, organizations.id))
+    .where(and(...conditions))
+    .having(sql`${distanceExpr} <= ${opts.radiusMiles}`)
+    .orderBy(sql`${distanceExpr} ASC`)
+    .limit(limit);
+
+  return {
+    results: results.map((r) => ({
+      ...r,
+      distance: Math.round(r.distance * 10) / 10,
+    })),
+    total: results.length,
+  };
+}
+
+// ============================================================================
 // Facility listing for map
 // ============================================================================
 

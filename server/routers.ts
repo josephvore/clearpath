@@ -194,6 +194,25 @@ export const appRouter = router({
   }),
 
   // ========================================================================
+  // Nearby Programs
+  // ========================================================================
+  nearby: router({
+    programs: publicProcedure
+      .input(
+        z.object({
+          lat: z.number(),
+          lng: z.number(),
+          radiusMiles: z.number().min(1).max(500).default(50),
+          levelOfCare: z.array(z.string()).optional(),
+          limit: z.number().min(1).max(100).optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        return db.getNearbyPrograms(input);
+      }),
+  }),
+
+  // ========================================================================
   // Map
   // ========================================================================
   map: router({
