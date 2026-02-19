@@ -40,9 +40,13 @@ import {
   AlertCircle,
   Shield,
   Star,
+  Bookmark,
+  BookmarkCheck,
+  GitCompareArrows,
 } from "lucide-react";
 import { useState, useMemo, useCallback } from "react";
-import { Link, useSearch } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { MapView } from "@/components/Map";
 import {
   LEVEL_OF_CARE_OPTIONS,
@@ -62,6 +66,15 @@ export default function Search() {
   const searchParams = new URLSearchParams(useSearch());
   const initialQuery = searchParams.get("q") ?? "";
   const initialLoc = searchParams.get("levelOfCare");
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const [compareIds, setCompareIds] = useState<number[]>([]);
+
+  const toggleCompare = (id: number) => {
+    setCompareIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length < 4 ? [...prev, id] : prev
+    );
+  };
 
   const [query, setQuery] = useState(initialQuery);
   const [levelOfCare, setLevelOfCare] = useState<string[]>(initialLoc ? [initialLoc] : []);
@@ -230,6 +243,23 @@ export default function Search() {
 
           {/* Results */}
           <div className="flex-1 min-w-0">
+            {compareIds.length > 0 && (
+              <div className="flex items-center gap-3 mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                <GitCompareArrows className="w-4 h-4 text-primary" />
+                <span className="text-sm">
+                  {compareIds.length} program{compareIds.length !== 1 ? "s" : ""} selected
+                </span>
+                {compareIds.length >= 2 && (
+                  <Button size="sm" onClick={() => navigate(`/compare?ids=${compareIds.join(",")}`)}>
+                    Compare Now
+                  </Button>
+                )}
+                <button className="text-xs text-muted-foreground hover:text-foreground ml-auto" onClick={() => setCompareIds([])}>
+                  Clear
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-4">
               <div className="text-sm text-muted-foreground">
                 {isLoading ? "Searching..." : data ? (
@@ -274,7 +304,16 @@ export default function Search() {
                       <EmptyState />
                     ) : (
                       data.results.map((result) => (
-                        <ProgramCard key={result.program.id} program={result.program} facility={result.facility} organization={result.organization} />
+                        <ProgramCard
+                          key={result.program.id}
+                          program={result.program}
+                          facility={result.facility}
+                          organization={result.organization}
+                          isCompareSelected={compareIds.includes(result.program.id)}
+                          onToggleCompare={() => toggleCompare(result.program.id)}
+                          showActions={true}
+                          userId={user?.id}
+                        />
                       ))
                     )}
                   </div>
@@ -439,10 +478,56 @@ function FilterPanel({
 // Program Card (enriched with quality + insurance badges)
 // ============================================================================
 
-function ProgramCard({ program, facility, organization }: { program: any; facility: any; organization: any }) {
+function ProgramCard({
+  program,
+  facility,
+  organization,
+  isCompareSelected,
+  onToggleCompare,
+  showActions,
+  userId,
+}: {
+  program: any;
+  facility: any;
+  organization: any;
+  isCompareSelected?: boolean;
+  onToggleCompare?: () => void;
+  showActions?: boolean;
+  userId?: number;
+}) {
   const qualityScore = facility?.qualityScore ?? program?.qualityScore;
   const insuranceList: string[] = facility?.acceptedInsurance ?? [];
   const substancesList: string[] = facility?.substancesTreated ?? [];
+
+  const addBookmark = trpc.bookmarks.add.useMutation();
+  const removeBookmark = trpc.bookmarks.remove.useMutation();
+  const utils = trpc.useUtils();
+  const { data: bookmarkIds } = trpc.bookmarks.ids.useQuery(undefined, {
+    enabled: !!userId,
+  });
+  const isBookmarked = bookmarkIds?.includes(program.id) ?? false;
+
+  const handleBookmark = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!userId) return;
+    const mutation = isBookmarked ? removeBookmark : addBookmark;
+    mutation.mutate(
+      { programId: program.id },
+      {
+        onSuccess: () => {
+          utils.bookmarks.ids.invalidate();
+          utils.bookmarks.list.invalidate();
+        },
+      }
+    );
+  };
+
+  const handleCompare = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onToggleCompare?.();
+  };
 
   return (
     <Link href={`/program/${program.id}`} className="block no-underline group">
@@ -502,7 +587,41 @@ function ProgramCard({ program, facility, organization }: { program: any; facili
                 </p>
               )}
             </div>
-            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors shrink-0 mt-1" />
+            <div className="flex flex-col items-center gap-1.5 shrink-0">
+              {showActions && (
+                <>
+                  {userId && (
+                    <button
+                      onClick={handleBookmark}
+                      className={`p-1.5 rounded-md transition-colors ${
+                        isBookmarked
+                          ? "text-primary bg-primary/10"
+                          : "text-muted-foreground hover:text-primary hover:bg-primary/5"
+                      }`}
+                      title={isBookmarked ? "Remove bookmark" : "Bookmark"}
+                    >
+                      {isBookmarked ? (
+                        <BookmarkCheck className="w-4 h-4" />
+                      ) : (
+                        <Bookmark className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
+                  <button
+                    onClick={handleCompare}
+                    className={`p-1.5 rounded-md transition-colors ${
+                      isCompareSelected
+                        ? "text-primary bg-primary/10"
+                        : "text-muted-foreground hover:text-primary hover:bg-primary/5"
+                    }`}
+                    title={isCompareSelected ? "Remove from comparison" : "Add to comparison"}
+                  >
+                    <GitCompareArrows className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+              <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+            </div>
           </div>
         </CardContent>
       </Card>

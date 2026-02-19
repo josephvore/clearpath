@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
 import { processIngestionJob } from "./ingestion";
@@ -209,6 +209,68 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         return db.getNearbyPrograms(input);
+      }),
+  }),
+
+  // ========================================================================
+  // Bookmarks
+  // ========================================================================
+  bookmarks: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUserBookmarks(ctx.user.id);
+    }),
+
+    ids: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUserBookmarkIds(ctx.user.id);
+    }),
+
+    add: protectedProcedure
+      .input(z.object({ programId: z.number(), notes: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        return db.addBookmark(ctx.user.id, input.programId, input.notes);
+      }),
+
+    remove: protectedProcedure
+      .input(z.object({ programId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        return db.removeBookmark(ctx.user.id, input.programId);
+      }),
+  }),
+
+  // ========================================================================
+  // Compare Programs
+  // ========================================================================
+  compare: router({
+    programs: publicProcedure
+      .input(z.object({ ids: z.array(z.number()).min(1).max(4) }))
+      .query(async ({ input }) => {
+        return db.getComparePrograms(input.ids);
+      }),
+  }),
+
+  // ========================================================================
+  // Browse by State
+  // ========================================================================
+  browse: router({
+    states: publicProcedure.query(async () => {
+      return db.getStateStats();
+    }),
+
+    byState: publicProcedure
+      .input(
+        z.object({
+          state: z.string(),
+          levelOfCare: z.array(z.string()).optional(),
+          limit: z.number().min(1).max(100).optional(),
+          offset: z.number().min(0).optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        return db.getProgramsByState(input.state, {
+          levelOfCare: input.levelOfCare,
+          limit: input.limit,
+          offset: input.offset,
+        });
       }),
   }),
 

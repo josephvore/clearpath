@@ -143,3 +143,33 @@
 - [x] Compute quality scores for all new entities (avg program: 0.55, avg facility: 0.62)
 - [x] Run tests and verify all features (60/60 tests passing)
 - [x] Push to GitHub and save checkpoint
+
+## v9: Compare Programs, Bookmarks, State Browse Pages
+
+### Compare Programs
+- [x] Backend: Compare programs procedure (fetch multiple programs by IDs with full details)
+- [x] Frontend: Add "Compare" checkbox/button to program cards in search results
+- [x] Frontend: Comparison bar showing selected programs (max 4)
+- [x] Frontend: Side-by-side comparison page with table layout
+- [x] Compare: Level of care, insurance, location, quality scores, specializations, tags
+
+### User Bookmarks
+- [x] Schema: Add bookmarks table (userId, programId, createdAt)
+- [x] Schema: Run migration (pnpm db:push)
+- [x] Backend: Add/remove bookmark procedures (protected)
+- [x] Backend: List user bookmarks procedure (protected)
+- [x] Frontend: Bookmark button on program cards in search results
+- [x] Frontend: Personal dashboard page with saved programs list
+- [x] Frontend: Add Saved link to navigation
+
+### State/Region Browse Pages
+- [x] Backend: Browse by state procedure (programs + facilities in a state)
+- [x] Frontend: State index page (/browse) with all 50 states + DC
+- [x] Frontend: Individual state page (/programs/:state) with facilities and programs
+- [x] Frontend: Add Browse link to navigation
+- [x] State pages: Show facility count, program count, map, and program list
+
+### Final
+- [x] Write vitest tests for new procedures (72/72 tests passing)
+- [x] Verify all features work end-to-end
+- [ ] Push to GitHub and save checkpoint

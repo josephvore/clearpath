@@ -10,6 +10,10 @@ import ProgramDetail from "./pages/ProgramDetail";
 import GuidedFinder from "./pages/GuidedFinder";
 import AdminDashboard from "./pages/AdminDashboard";
 import NearbyPrograms from "./pages/NearbyPrograms";
+import ComparePrograms from "./pages/ComparePrograms";
+import BookmarksPage from "./pages/Bookmarks";
+import BrowseStates from "./pages/BrowseStates";
+import StateDetail from "./pages/StateDetail";
 import PublicLayout from "./components/PublicLayout";
 
 function Router() {
@@ -20,6 +24,10 @@ function Router() {
       <Route path="/program/:id" component={ProgramDetail} />
       <Route path="/find" component={GuidedFinder} />
       <Route path="/nearby" component={NearbyPrograms} />
+      <Route path="/compare" component={ComparePrograms} />
+      <Route path="/bookmarks" component={BookmarksPage} />
+      <Route path="/browse" component={BrowseStates} />
+      <Route path="/programs/:state" component={StateDetail} />
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/:tab" component={AdminDashboard} />
       <Route path="/404" component={NotFound} />

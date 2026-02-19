@@ -635,3 +635,30 @@ export const userNeedsProfiles = mysqlTable("user_needs_profiles", {
 
 export type UserNeedsProfile = typeof userNeedsProfiles.$inferSelect;
 export type InsertUserNeedsProfile = typeof userNeedsProfiles.$inferInsert;
+
+// ============================================================================
+// Bookmarks (user saved programs)
+// ============================================================================
+
+export const bookmarks = mysqlTable(
+  "bookmarks",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    userId: int("userId")
+      .references(() => users.id)
+      .notNull(),
+    programId: int("programId")
+      .references(() => programs.id)
+      .notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("bm_user_program_idx").on(table.userId, table.programId),
+    index("bm_user_idx").on(table.userId),
+    index("bm_program_idx").on(table.programId),
+  ]
+);
+
+export type Bookmark = typeof bookmarks.$inferSelect;
+export type InsertBookmark = typeof bookmarks.$inferInsert;

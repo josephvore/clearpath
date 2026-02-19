@@ -29,6 +29,8 @@ import {
   InsertIngestionJob,
   userNeedsProfiles,
   InsertUserNeedsProfile,
+  bookmarks,
+  InsertBookmark,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -924,4 +926,171 @@ export async function getFacilitiesForMap(opts: { state?: string; lat?: number; 
     .from(facilities)
     .where(and(...conditions))
     .limit(500);
+}
+
+// ============================================================================
+// Bookmarks
+// ============================================================================
+
+export async function addBookmark(userId: number, programId: number, notes?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db
+    .insert(bookmarks)
+    .values({ userId, programId, notes: notes ?? null })
+    .onDuplicateKeyUpdate({ set: { notes: notes ?? null } });
+  return { success: true };
+}
+
+export async function removeBookmark(userId: number, programId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db
+    .delete(bookmarks)
+    .where(and(eq(bookmarks.userId, userId), eq(bookmarks.programId, programId)));
+  return { success: true };
+}
+
+export async function getUserBookmarks(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      bookmark: bookmarks,
+      program: programs,
+      facility: facilities,
+      organization: organizations,
+    })
+    .from(bookmarks)
+    .innerJoin(programs, eq(bookmarks.programId, programs.id))
+    .leftJoin(facilities, eq(programs.facilityId, facilities.id))
+    .leftJoin(organizations, eq(programs.organizationId, organizations.id))
+    .where(eq(bookmarks.userId, userId))
+    .orderBy(desc(bookmarks.createdAt));
+}
+
+export async function getUserBookmarkIds(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ programId: bookmarks.programId })
+    .from(bookmarks)
+    .where(eq(bookmarks.userId, userId));
+  return rows.map((r) => r.programId);
+}
+
+// ============================================================================
+// Compare Programs (fetch multiple by IDs)
+// ============================================================================
+
+export async function getComparePrograms(ids: number[]) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const results = await db
+    .select({
+      program: programs,
+      facility: facilities,
+      organization: organizations,
+    })
+    .from(programs)
+    .leftJoin(facilities, eq(programs.facilityId, facilities.id))
+    .leftJoin(organizations, eq(programs.organizationId, organizations.id))
+    .where(inArray(programs.id, ids));
+
+  // Get tags for each program
+  const programsWithTags = await Promise.all(
+    results.map(async (r) => {
+      const tagRows = await db
+        .select({ tag: tags, confidence: programTags.confidence })
+        .from(programTags)
+        .innerJoin(tags, eq(programTags.tagId, tags.id))
+        .where(eq(programTags.programId, r.program.id));
+      return { ...r, tags: tagRows };
+    })
+  );
+
+  return programsWithTags;
+}
+
+// ============================================================================
+// Browse by State
+// ============================================================================
+
+export async function getStateStats() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      state: facilities.state,
+      facilityCount: count(sql`DISTINCT ${facilities.id}`),
+      programCount: count(programs.id),
+    })
+    .from(facilities)
+    .leftJoin(programs, and(eq(programs.facilityId, facilities.id), eq(programs.status, "active")))
+    .where(and(isNotNull(facilities.state), eq(facilities.status, "active")))
+    .groupBy(facilities.state)
+    .orderBy(desc(count(programs.id)));
+}
+
+export async function getProgramsByState(state: string, opts?: { levelOfCare?: string[]; limit?: number; offset?: number }) {
+  const db = await getDb();
+  if (!db) return { results: [], total: 0, facilities: [] };
+
+  const limit = opts?.limit ?? 50;
+  const offset = opts?.offset ?? 0;
+
+  const conditions: any[] = [
+    eq(facilities.state, state),
+    eq(programs.status, "active"),
+  ];
+
+  if (opts?.levelOfCare?.length) {
+    conditions.push(inArray(programs.levelOfCare, opts.levelOfCare as any));
+  }
+
+  const whereClause = and(...conditions);
+
+  const countResult = await db
+    .select({ total: count() })
+    .from(programs)
+    .innerJoin(facilities, eq(programs.facilityId, facilities.id))
+    .where(whereClause);
+
+  const total = countResult[0]?.total ?? 0;
+
+  const results = await db
+    .select({
+      program: programs,
+      facility: facilities,
+      organization: organizations,
+    })
+    .from(programs)
+    .innerJoin(facilities, eq(programs.facilityId, facilities.id))
+    .leftJoin(organizations, eq(programs.organizationId, organizations.id))
+    .where(whereClause)
+    .orderBy(desc(programs.qualityScore))
+    .limit(limit)
+    .offset(offset);
+
+  // Get unique facilities for this state (for map)
+  const stateFacilities = await db
+    .select({
+      id: facilities.id,
+      name: facilities.name,
+      lat: facilities.lat,
+      lng: facilities.lng,
+      city: facilities.city,
+      state: facilities.state,
+      facilityType: facilities.facilityType,
+      phone: facilities.phone,
+      qualityScore: facilities.qualityScore,
+    })
+    .from(facilities)
+    .where(and(eq(facilities.state, state), isNotNull(facilities.lat), isNotNull(facilities.lng)))
+    .limit(200);
+
+  return { results, total, facilities: stateFacilities };
 }

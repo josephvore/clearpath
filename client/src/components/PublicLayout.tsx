@@ -20,6 +20,8 @@ import {
   Phone,
   ExternalLink,
   Navigation,
+  Globe,
+  Bookmark,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
@@ -83,6 +85,16 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                 <Navigation className="w-4 h-4" />
                 Nearby
               </NavLink>
+              <NavLink href="/browse" active={location === "/browse" || location.startsWith("/programs/")}>
+                <Globe className="w-4 h-4" />
+                Browse
+              </NavLink>
+              {user && (
+                <NavLink href="/bookmarks" active={location === "/bookmarks"}>
+                  <Bookmark className="w-4 h-4" />
+                  Saved
+                </NavLink>
+              )}
               {user?.role === "admin" && (
                 <NavLink href="/admin" active={location.startsWith("/admin")}>
                   <LayoutDashboard className="w-4 h-4" />
@@ -174,6 +186,22 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               <Navigation className="w-4 h-4" />
               Nearby
             </MobileNavLink>
+            <MobileNavLink
+              href="/browse"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Globe className="w-4 h-4" />
+              Browse by State
+            </MobileNavLink>
+            {user && (
+              <MobileNavLink
+                href="/bookmarks"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <Bookmark className="w-4 h-4" />
+                Saved Programs
+              </MobileNavLink>
+            )}
             {user?.role === "admin" && (
               <MobileNavLink
                 href="/admin"
@@ -217,6 +245,9 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
                 </Link>
                 <Link href="/nearby" className="block text-sm text-muted-foreground hover:text-foreground no-underline">
                   Nearby Programs
+                </Link>
+                <Link href="/browse" className="block text-sm text-muted-foreground hover:text-foreground no-underline">
+                  Browse by State
                 </Link>
               </div>
             </div>
